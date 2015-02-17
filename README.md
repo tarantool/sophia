@@ -6,6 +6,7 @@
 	<a href="http://sphia.org">sophia</a> - is a modern embeddable key-value database, fast and feature-rich.<br>
 	<a href="http://tarantool.org">tarantool</a> integration fork.
 	<br>
+	<br>
 	
 </p>
 [![Build Status](https://travis-ci.org/pmwkaa/sophia.png?branch=dev)](https://travis-ci.org/pmwkaa/sophia)
