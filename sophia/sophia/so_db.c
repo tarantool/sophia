@@ -211,11 +211,6 @@ so_dbdrop(soobj *obj, va_list args srunused)
 	int status = so_status(&o->status);
 	if (status != SO_ONLINE)
 		return -1;
-	if (srunlikely(o->ctl.dropped))
-		return 0;
-	int rc = si_dropmark(&o->index, &o->r);
-	if (srunlikely(rc == -1))
-		return -1;
 	o->ctl.dropped = 1;
 	return 0;
 }

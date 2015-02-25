@@ -57,7 +57,8 @@ si_dropof(siconf *conf, sr *r)
 	return 0;
 }
 
-int si_dropmark(si *i, sr *r)
+static int
+si_dropmark(si *i, sr *r)
 {
 	/* create drop file */
 	char path[1024];
@@ -82,6 +83,11 @@ int si_drop(si *i, sr *r)
 	int rc = si_close(i, r);
 	if (srunlikely(rc == -1))
 		return -1;
+	if (! i->dropped) {
+		rc = si_dropmark(i, r);
+		if (srunlikely(rc == -1))
+			return -1;
+	}
 	/* remove directory */
 	rc = si_dropof(conf, r);
 	return rc;
