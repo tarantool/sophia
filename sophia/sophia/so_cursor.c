@@ -112,6 +112,8 @@ static soobjif socursorif =
 soobj *so_cursornew(sodb *db, uint64_t vlsn, va_list args)
 {
 	so *e = so_of(&db->o);
+	if (db->ctl.dropped_by_recover)
+		return 0;
 	soobj *keyobj = va_arg(args, soobj*);
 
 	/* validate call */

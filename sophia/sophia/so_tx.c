@@ -41,6 +41,12 @@ int so_txdbset(sodb *db, uint8_t flags, va_list args)
 	if (srunlikely(status == SO_RECOVER))
 		goto error;
 
+	/* do nothing for dropped databases */
+	if (db->ctl.dropped_by_recover) {
+		so_objdestroy(&o->o);
+		return 0;
+	}
+
 	/* prepare object */
 	svlocal l;
 	l.flags       = flags;
@@ -130,6 +136,12 @@ void *so_txdbget(sodb *db, uint64_t vlsn, va_list args)
 	if (srunlikely(! so_dbactive(db)))
 		goto error;
 
+	/* do nothing for dropped databases */
+	if (db->ctl.dropped_by_recover) {
+		so_objdestroy(&o->o);
+		return NULL;
+	}
+
 	sx_getstmt(&e->xm, &db->coindex);
 	if (srlikely(vlsn == 0))
 		vlsn = sr_seq(db->r.seq, SR_LSN);
@@ -188,6 +200,12 @@ so_txdo(soobj *obj, uint8_t flags, va_list args)
 	}
 	if (srunlikely(! so_dbactive(db)))
 		goto error;
+
+	/* do nothing for dropped databases */
+	if (db->ctl.dropped_by_recover) {
+		so_objdestroy(&o->o);
+		return 0;
+	}
 
 	/* prepare object */
 	svlocal l;
@@ -254,6 +272,12 @@ so_txget(soobj *obj, va_list args)
 	sodb *db = (sodb*)parent;
 	if (srunlikely(! so_dbactive(db)))
 		goto error;
+
+	/* do nothing for dropped databases */
+	if (db->ctl.dropped_by_recover) {
+		so_objdestroy(&o->o);
+		return NULL;
+	}
 
 	soobj *ret;
 	sv result;
@@ -427,6 +451,10 @@ so_txcommit(soobj *o, va_list args)
 	svlogindex *end = (svlogindex*)t->t.log.index.p;
 	while (i < end) {
 		sodb *db = i->ptr;
+		if (srunlikely(db->ctl.dropped_by_recover)) {
+			i++;
+			continue;
+		}
 		sitx ti;
 		si_begin(&ti, &db->r, &db->index, vlsn, now, &t->t.log, i);
 		si_write(&ti, check_if_exists);

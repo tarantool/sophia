@@ -350,14 +350,14 @@ si_recovercomplete(sitrack *track, sr *r, si *index, srbuf *buf)
 }
 
 static inline int
-si_recoverdrop(si *i, sr *r)
+si_recoverdrop(si *i)
 {
 	char path[1024];
 	snprintf(path, sizeof(path), "%s/drop", i->conf->path);
 	if (sr_fileexists(path)) {
-		sr_malfunction(r->e, "attempt to recover a dropped database: %s:",
-		               i->conf->path);
-		return -1;
+		i->destroyed = 1;
+		i->dropped = 1;
+		return 1;
 	}
 	return 0;
 }
@@ -365,13 +365,13 @@ si_recoverdrop(si *i, sr *r)
 static inline int
 si_recoverindex(si *i, sr *r)
 {
+	int rc = si_recoverdrop(i);
+	if (srunlikely(rc))
+		return 0;
 	sitrack track;
 	si_trackinit(&track);
 	srbuf buf;
 	sr_bufinit(&buf);
-	int rc = si_recoverdrop(i, r);
-	if (srunlikely(rc == -1))
-		return -1;
 	rc = si_trackdir(&track, r, i);
 	if (srunlikely(rc == -1))
 		goto error;

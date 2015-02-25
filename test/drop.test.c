@@ -81,7 +81,30 @@ drop_test_reopen(stc *cx srunused)
 	t( sp_set(c, "db", "test") == 0 );
 	t( sp_set(c, "db.test.path", cx->suite->dir) == 0 );
 	t( sp_set(c, "db.test.index.cmp", "u32", NULL) == 0 );
-	t( sp_open(env) == -1 ); /* database dropped */
+	t( sp_open(env) == 0 ); /* database dropped */
+
+	db = sp_get(c, "db.test");
+	uint32_t key = 1234;
+	uint32_t value = 4321;
+	void *o = sp_object(db);
+	t( o != NULL );
+	t( sp_set(o, "key", &key, sizeof(key)) == 0 );
+	t( sp_set(o, "value", &value, sizeof(value)) == 0 );
+	t( sp_set(db, o) == 0 ); /* do nothing */
+
+	o = sp_object(db);
+	t( o != NULL );
+	t( sp_set(o, "key", &key, sizeof(key)) == 0 );
+	o = sp_get(db, o);
+	t( o == NULL ); /* do nothing */
+
+	sp_destroy(db); /* unref */
+	sp_destroy(db); /* schedule shutdown, unlink */
+
+	t( exists(cx->suite->dir, "") == 1 );
+	t( sp_set(c, "scheduler.run") == 1 ); /* proceed drop */
+	t( exists(cx->suite->dir, "") == 0 );
+
 	t( sp_destroy(env) == 0 );
 }
 

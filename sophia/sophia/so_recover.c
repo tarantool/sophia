@@ -38,6 +38,11 @@ int so_recoverbegin(sodb *db)
 	if (srunlikely(rc == -1))
 		goto error;
 	db->ctl.created = rc;
+	/* re-schedule database drop */
+	if (db->index.dropped) {
+		db->ctl.dropped_by_recover = 1;
+		db->ctl.dropped = 1;
+	}
 	return 0;
 error:
 	so_dbmalfunction(db);

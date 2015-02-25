@@ -72,6 +72,7 @@ so_dbctl_init(sodbctl *c, char *name, void *db)
 	c->parent  = db;
 	c->created = 0;
 	c->dropped = 0;
+	c->dropped_by_recover = 0;
 	c->sync    = 1;
 	sr_cmpset(&c->cmp, "string");
 	return 0;

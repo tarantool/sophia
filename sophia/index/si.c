@@ -26,6 +26,7 @@ int si_init(si *i, sr *r, srquota *q)
 	i->read_disk   = 0;
 	i->read_cache  = 0;
 	i->destroyed   = 0;
+	i->dropped     = 0;
 	return 0;
 }
 

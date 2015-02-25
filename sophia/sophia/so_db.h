@@ -21,6 +21,7 @@ struct sodbctl {
 	char         *path;
 	uint32_t      created;
 	uint32_t      dropped;
+	uint32_t      dropped_by_recover;
 	uint32_t      sync;
 	siprofiler    rtp;
 } srpacked;
