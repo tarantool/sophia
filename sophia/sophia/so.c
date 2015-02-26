@@ -185,6 +185,7 @@ soobj *so_new(void)
 	sr_allocopen(&e->a_cursorcache, &sr_aslab, &e->pager, sizeof(sicachebranch));
 	sr_allocopen(&e->a_ctlcursor, &sr_aslab, &e->pager, sizeof(soctlcursor));
 	sr_allocopen(&e->a_snapshot, &sr_aslab, &e->pager, sizeof(sosnapshot));
+	sr_allocopen(&e->a_snapshotcursor, &sr_aslab, &e->pager, sizeof(sosnapshotcursor));
 	sr_allocopen(&e->a_tx, &sr_aslab, &e->pager, sizeof(sotx));
 	sr_allocopen(&e->a_sxv, &sr_aslab, &e->pager, sizeof(sxv));
 	so_statusinit(&e->status);

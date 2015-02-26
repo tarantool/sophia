@@ -34,6 +34,7 @@ so_snapshotdestroy(soobj *o, va_list args srunused)
 {
 	sosnapshot *s = (sosnapshot*)o;
 	so *e = so_of(o);
+	so_objindex_destroy(&s->cursor);
 	uint32_t id = s->t.id;
 	so_objindex_unregister(&e->snapshot, &s->o);
 	so_dbunbind(e, id);
@@ -79,13 +80,23 @@ error:
 }
 
 static void*
+so_snapshotctl(soobj *obj, va_list args)
+{
+	sosnapshot *o = (sosnapshot*)obj;
+	char *field = va_arg(args, char*);
+	if (strcmp(field, "db_list") == 0)
+		return so_snapshotcursor_new(o);
+	return NULL;
+}
+
+static void*
 so_snapshottype(soobj *o srunused, va_list args srunused) {
 	return "snapshot";
 }
 
 static soobjif sosnapshotif =
 {
-	.ctl      = NULL,
+	.ctl      = so_snapshotctl,
 	.open     = NULL,
 	.destroy  = so_snapshotdestroy,
 	.error    = NULL,
@@ -117,6 +128,7 @@ soobj *so_snapshotnew(so *e, uint64_t vlsn, char *name)
 		return NULL;
 	}
 	so_objinit(&s->o, SOSNAPSHOT, &sosnapshotif, &e->o);
+	so_objindex_init(&s->cursor);
 	s->vlsn = vlsn;
 	s->name = sr_strdup(&e->a, name);
 	if (srunlikely(s->name == NULL)) {

@@ -32,6 +32,7 @@ struct so {
 	sra a_cursorcache;
 	sra a_ctlcursor;
 	sra a_snapshot;
+	sra a_snapshotcursor;
 	sra a_tx;
 	sra a_sxv;
 	seconf seconf;

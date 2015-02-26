@@ -14,6 +14,7 @@ typedef struct sosnapshot sosnapshot;
 struct sosnapshot {
 	soobj o;
 	sx t;
+	soobjindex cursor;
 	uint64_t vlsn;
 	char *name;
 } srpacked;

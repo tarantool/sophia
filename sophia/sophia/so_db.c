@@ -411,7 +411,6 @@ void so_dbunbind(so *o, uint32_t txn)
 		if (txn > db->txn_min)
 			so_dbunref(db, 1);
 	}
-
 	sr_spinlock(&o->dblock);
 	sr_listforeach(&o->db_shutdown.list, i) {
 		sodb *db = (sodb*)srcast(i, soobj, link);
