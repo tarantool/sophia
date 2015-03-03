@@ -29,6 +29,7 @@ OBJECTS = st.o \
           drop.test.o \
           ddl.test.o \
           snapshot.test.o \
+          snapshot_cursor.test.o \
           gc.test.o \
           backup.test.o \
           branch.test.o \
