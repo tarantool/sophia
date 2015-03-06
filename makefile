@@ -11,7 +11,7 @@ CFLAGS_COVERAGE =
 endif
 
 CFLAGS_DEBUG   = -DSR_INJECTION_ENABLE -g
-CFLAGS_OPT     = -O0
+CFLAGS_OPT     = -O2
 CFLAGS_STRICT  = -std=c99 -pedantic -Wextra -Wall
 CFLAGS_MISC    = -Wno-unused-function -fPIC -fno-stack-protector -fvisibility=hidden
 LDFLAGS_ALL    = -shared -soname $(SOPHIA_DSO).1
