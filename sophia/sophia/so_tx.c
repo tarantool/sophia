@@ -35,10 +35,7 @@ int so_txdbset(sodb *db, uint8_t flags, va_list args)
 		sr_error(&e->error, "%s", "bad object parent");
 		goto error;
 	}
-	int status = so_status(&db->status);
-	if (srunlikely(! so_statusactive_is(status)))
-		goto error;
-	if (srunlikely(status == SO_RECOVER))
+	if (srunlikely(! so_online(&db->status)))
 		goto error;
 
 	/* do nothing for dropped databases */
@@ -133,7 +130,7 @@ void *so_txdbget(sodb *db, uint64_t vlsn, va_list args)
 		sr_error(&e->error, "%s", "bad object parent");
 		goto error;
 	}
-	if (srunlikely(! so_dbactive(db)))
+	if (srunlikely(! so_online(&db->status)))
 		goto error;
 
 	/* do nothing for dropped databases */
@@ -150,7 +147,8 @@ void *so_txdbget(sodb *db, uint64_t vlsn, va_list args)
 	si_cacheinit(&cache, &e->a_cursorcache);
 	siquery q;
 	si_queryopen(&q, &db->r, &cache, &db->index,
-	             SR_EQ, vlsn, key, keysize);
+	             SR_EQ, vlsn,
+	             NULL, 0, key, keysize);
 	sv result;
 	int rc = si_query(&q);
 	if (rc == 1) {
@@ -193,13 +191,26 @@ so_txdo(soobj *obj, uint8_t flags, va_list args)
 		sr_error(&e->error, "%s", "bad object parent");
 		goto error;
 	}
-	sodb *db = (sodb*)parent;
 	if (t->t.s == SXPREPARE) {
 		sr_error(&e->error, "%s", "transaction is in 'prepare' state (read-only)");
 		goto error;
 	}
-	if (srunlikely(! so_dbactive(db)))
-		goto error;
+
+	/* validate database status */
+	sodb *db = (sodb*)parent;
+	int status = so_status(&db->status);
+	switch (status) {
+	case SO_ONLINE:
+	case SO_RECOVER:
+		break;
+	case SO_SHUTDOWN:
+		if (srunlikely(! so_dbvisible(db, t->t.id))) {
+			sr_error(&e->error, "%s", "database is invisible for the transaction");
+			goto error;
+		}
+		break;
+	default: goto error;
+	}
 
 	/* do nothing for dropped databases */
 	if (db->ctl.dropped_by_recover) {
@@ -269,9 +280,22 @@ so_txget(soobj *obj, va_list args)
 		sr_error(&e->error, "%s", "bad object parent");
 		goto error;
 	}
+
+	/* validate database status */
 	sodb *db = (sodb*)parent;
-	if (srunlikely(! so_dbactive(db)))
-		goto error;
+	int status = so_status(&db->status);
+	switch (status) {
+	case SO_ONLINE:
+	case SO_RECOVER:
+		break;
+	case SO_SHUTDOWN:
+		if (srunlikely(! so_dbvisible(db, t->t.id))) {
+			sr_error(&e->error, "%s", "database is invisible for the transaction");
+			goto error;
+		}
+		break;
+	default: goto error;
+	}
 
 	/* do nothing for dropped databases */
 	if (db->ctl.dropped_by_recover) {
@@ -300,6 +324,7 @@ so_txget(soobj *obj, va_list args)
 	siquery q;
 	si_queryopen(&q, &db->r, &cache, &db->index,
 	             SR_EQ, t->t.vlsn,
+	             NULL, 0,
 	             key, svkeysize(&o->v));
 	rc = si_query(&q);
 	if (rc == 1) {
@@ -353,6 +378,7 @@ so_txprepare_trigger(sx *t, sv *v, void *arg0, void *arg1)
 	siquery q;
 	si_queryopen(&q, &db->r, &cache, &db->index,
 	             SR_UPDATE, t->vlsn,
+	             NULL, 0,
 	             svkey(v), svkeysize(v));
 	int rc;
 	rc = si_query(&q);

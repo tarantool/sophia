@@ -51,7 +51,7 @@ static void
 sliter_tx(stc *cx)
 {
 	sra a;
-	sr_allocopen(&a, &sr_astd);
+	sr_aopen(&a, &sr_stda);
 	srcomparator cmp = { sr_cmpu32, NULL };
 	srseq seq;
 	sr_seqinit(&seq);
@@ -59,7 +59,7 @@ sliter_tx(stc *cx)
 	sr_errorinit(&error);
 	sr r;
 	srcrcf crc = sr_crc32c_function();
-	sr_init(&r, &error, &a, &seq, &cmp, NULL, crc);
+	sr_init(&r, &error, &a, &seq, &cmp, NULL, crc, NULL);
 	slconf conf = {
 		.path     = cx->suite->logdir,
 		.enable   = 1,
@@ -88,7 +88,7 @@ static void
 sliter_tx_read_empty(stc *cx)
 {
 	sra a;
-	sr_allocopen(&a, &sr_astd);
+	sr_aopen(&a, &sr_stda);
 	srcomparator cmp = { sr_cmpu32, NULL };
 	srseq seq;
 	sr_seqinit(&seq);
@@ -96,7 +96,7 @@ sliter_tx_read_empty(stc *cx)
 	sr_errorinit(&error);
 	sr r;
 	srcrcf crc = sr_crc32c_function();
-	sr_init(&r, &error, &a, &seq, &cmp, NULL, crc);
+	sr_init(&r, &error, &a, &seq, &cmp, NULL, crc, NULL);
 	slconf conf = {
 		.path     = cx->suite->logdir,
 		.enable   = 1,
@@ -135,7 +135,7 @@ static void
 sliter_tx_read0(stc *cx)
 {
 	sra a;
-	sr_allocopen(&a, &sr_astd);
+	sr_aopen(&a, &sr_stda);
 	srcomparator cmp = { sr_cmpu32, NULL };
 	srseq seq;
 	sr_seqinit(&seq);
@@ -143,7 +143,7 @@ sliter_tx_read0(stc *cx)
 	sr_errorinit(&error);
 	sr r;
 	srcrcf crc = sr_crc32c_function();
-	sr_init(&r, &error, &a, &seq, &cmp, NULL, crc);
+	sr_init(&r, &error, &a, &seq, &cmp, NULL, crc, NULL);
 	slconf conf = {
 		.path     = cx->suite->logdir,
 		.enable   = 1,
@@ -187,7 +187,7 @@ static void
 sliter_tx_read1(stc *cx)
 {
 	sra a;
-	sr_allocopen(&a, &sr_astd);
+	sr_aopen(&a, &sr_stda);
 	srcomparator cmp = { sr_cmpu32, NULL };
 	srseq seq;
 	sr_seqinit(&seq);
@@ -195,7 +195,7 @@ sliter_tx_read1(stc *cx)
 	sr_errorinit(&error);
 	sr r;
 	srcrcf crc = sr_crc32c_function();
-	sr_init(&r, &error, &a, &seq, &cmp, NULL, crc);
+	sr_init(&r, &error, &a, &seq, &cmp, NULL, crc, NULL);
 	slconf conf = {
 		.path     = cx->suite->logdir,
 		.enable   = 1,
@@ -250,7 +250,7 @@ static void
 sliter_tx_read2(stc *cx)
 {
 	sra a;
-	sr_allocopen(&a, &sr_astd);
+	sr_aopen(&a, &sr_stda);
 	srcomparator cmp = { sr_cmpu32, NULL };
 	srseq seq;
 	sr_seqinit(&seq);
@@ -258,7 +258,7 @@ sliter_tx_read2(stc *cx)
 	sr_errorinit(&error);
 	sr r;
 	srcrcf crc = sr_crc32c_function();
-	sr_init(&r, &error, &a, &seq, &cmp, NULL, crc);
+	sr_init(&r, &error, &a, &seq, &cmp, NULL, crc, NULL);
 	slconf conf = {
 		.path     = cx->suite->logdir,
 		.enable   = 1,
@@ -317,7 +317,7 @@ static void
 sliter_tx_read3(stc *cx)
 {
 	sra a;
-	sr_allocopen(&a, &sr_astd);
+	sr_aopen(&a, &sr_stda);
 	srcomparator cmp = { sr_cmpu32, NULL };
 	srseq seq;
 	sr_seqinit(&seq);
@@ -325,7 +325,7 @@ sliter_tx_read3(stc *cx)
 	sr_errorinit(&error);
 	sr r;
 	srcrcf crc = sr_crc32c_function();
-	sr_init(&r, &error, &a, &seq, &cmp, NULL, crc);
+	sr_init(&r, &error, &a, &seq, &cmp, NULL, crc, NULL);
 	slconf conf = {
 		.path     = cx->suite->logdir,
 		.enable   = 1,

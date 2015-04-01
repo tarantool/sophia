@@ -51,7 +51,7 @@ static void
 sl_begin_commit(stc *cx)
 {
 	sra a;
-	sr_allocopen(&a, &sr_astd);
+	sr_aopen(&a, &sr_stda);
 	srcomparator cmp = { sr_cmpu32, NULL };
 	srseq seq;
 	sr_seqinit(&seq);
@@ -59,7 +59,7 @@ sl_begin_commit(stc *cx)
 	srerror error;
 	sr_errorinit(&error);
 	srcrcf crc = sr_crc32c_function();
-	sr_init(&r, &error, &a, &seq, &cmp, NULL, crc);
+	sr_init(&r, &error, &a, &seq, &cmp, NULL, crc, NULL);
 	slconf conf = {
 		.path     = cx->suite->logdir,
 		.enable   = 1,
@@ -88,7 +88,7 @@ static void
 sl_begin_rollback(stc *cx)
 {
 	sra a;
-	sr_allocopen(&a, &sr_astd);
+	sr_aopen(&a, &sr_stda);
 	srcomparator cmp = { sr_cmpu32, NULL };
 	srseq seq;
 	sr_seqinit(&seq);
@@ -96,7 +96,7 @@ sl_begin_rollback(stc *cx)
 	srerror error;
 	sr_errorinit(&error);
 	srcrcf crc = sr_crc32c_function();
-	sr_init(&r, &error, &a, &seq, &cmp, NULL, crc);
+	sr_init(&r, &error, &a, &seq, &cmp, NULL, crc, NULL);
 	slconf conf = {
 		.path     = cx->suite->logdir,
 		.enable   = 1,

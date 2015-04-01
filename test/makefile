@@ -8,6 +8,8 @@ OBJECTS = st.o \
           srcmp.test.o \
           srorder.test.o \
           srrq.test.o \
+          srzstdfilter.test.o \
+          srlz4filter.test.o \
           svlocal.test.o \
           svv.test.o \
           svindex.test.o \
@@ -42,6 +44,7 @@ OBJECTS = st.o \
           tpc.test.o \
           deadlock.test.o \
           cursor.test.o \
+          prefix.test.o \
           recover_crash.test.o \
           recover_loop.test.o \
           mt.test.o \

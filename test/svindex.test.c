@@ -41,12 +41,12 @@ static void
 svindex_replace0(stc *cx srunused)
 {
 	sra a;
-	sr_allocopen(&a, &sr_astd);
+	sr_aopen(&a, &sr_stda);
 	srcomparator cmp = { sr_cmpu32, NULL };
 	srerror error;
 	sr_errorinit(&error);
 	sr r;
-	sr_init(&r, &error, &a, NULL, &cmp, NULL, NULL);
+	sr_init(&r, &error, &a, NULL, &cmp, NULL, NULL, NULL);
 
 	svindex i;
 	t( sv_indexinit(&i) == 0 );
@@ -72,12 +72,12 @@ static void
 svindex_replace1(stc *cx srunused)
 {
 	sra a;
-	sr_allocopen(&a, &sr_astd);
+	sr_aopen(&a, &sr_stda);
 	srcomparator cmp = { sr_cmpu32, NULL };
 	srerror error;
 	sr_errorinit(&error);
 	sr r;
-	sr_init(&r, &error, &a, NULL, &cmp, NULL, NULL);
+	sr_init(&r, &error, &a, NULL, &cmp, NULL, NULL, NULL);
 
 	svindex i;
 	t( sv_indexinit(&i) == 0 );
@@ -106,12 +106,12 @@ static void
 svindex_replace2(stc *cx srunused)
 {
 	sra a;
-	sr_allocopen(&a, &sr_astd);
+	sr_aopen(&a, &sr_stda);
 	srcomparator cmp = { sr_cmpu32, NULL };
 	srerror error;
 	sr_errorinit(&error);
 	sr r;
-	sr_init(&r, &error, &a, NULL, &cmp, NULL, NULL);
+	sr_init(&r, &error, &a, NULL, &cmp, NULL, NULL, NULL);
 
 	svindex i;
 	t( sv_indexinit(&i) == 0 );

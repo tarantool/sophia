@@ -19,6 +19,8 @@ struct siconf {
 	int       sync;
 	uint64_t  node_size;
 	uint32_t  node_page_size;
+	uint32_t  node_page_checksum;
+	uint32_t  compression;
 };
 
 #endif

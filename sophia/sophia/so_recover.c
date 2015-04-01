@@ -24,9 +24,11 @@ int so_recoverbegin(sodb *db)
 	siconf *c = &db->indexconf;
 	c->node_size           = e->ctl.node_size;
 	c->node_page_size      = e->ctl.page_size;
+	c->node_page_checksum  = e->ctl.page_checksum;
 	c->path_backup         = e->ctl.backup_path;
 	c->path                = db->ctl.path;
 	c->path_fail_on_exists = 0;
+	c->compression         = db->ctl.compression_if != NULL;
 	/* do not allow to recover existing databases
 	 * during online (only create), since logpool
 	 * reply is required. */

@@ -23,6 +23,8 @@ struct sodbctl {
 	uint32_t      dropped;
 	uint32_t      dropped_by_recover;
 	uint32_t      sync;
+	char         *compression;
+	srfilterif   *compression_if;
 	siprofiler    rtp;
 } srpacked;
 
@@ -55,6 +57,7 @@ void      so_dbref(sodb*, int);
 uint32_t  so_dbunref(sodb*, int);
 uint32_t  so_dbrefof(sodb*, int);
 int       so_dbgarbage(sodb*);
+int       so_dbvisible(sodb*, uint32_t);
 void      so_dbbind(so*);
 void      so_dbunbind(so*, uint32_t);
 int       so_dbmalfunction(sodb *o);
