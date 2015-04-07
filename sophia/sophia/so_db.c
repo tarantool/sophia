@@ -236,7 +236,7 @@ so_dbdrop(soobj *obj, va_list args srunused)
 {
 	sodb *o = (sodb*)obj;
 	int status = so_status(&o->status);
-	if (status != SO_ONLINE)
+	if (srunlikely(! so_statusactive_is(status)))
 		return -1;
 	o->ctl.dropped = 1;
 	return 0;
