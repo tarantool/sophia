@@ -14,10 +14,12 @@ typedef struct so so;
 struct so {
 	soobj o;
 	srmutex apilock;
+	srspinlock reqlock;
 	srspinlock dblock;
 	soobjindex db;
 	soobjindex db_shutdown;
 	soobjindex tx;
+	soobjindex req;
 	soobjindex snapshot;
 	soobjindex ctlcursor;
 	sostatus status;
@@ -35,6 +37,7 @@ struct so {
 	sra a_snapshotcursor;
 	sra a_tx;
 	sra a_sxv;
+	sra a_req;
 	seconf seconf;
 	se se;
 	slconf lpconf;

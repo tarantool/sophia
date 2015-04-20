@@ -17,7 +17,7 @@
 #include <libso.h>
 
 static void*
-so_dbctlget(soobj *obj, va_list args)
+so_dbctl_get(soobj *obj, va_list args)
 {
 	sodbctl *ctl = (sodbctl*)obj;
 	src c;
@@ -39,23 +39,54 @@ so_dbctlget(soobj *obj, va_list args)
 	return so_ctlreturn(&c, so_of(&db->o));
 }
 
+static void*
+so_dbctl_type(soobj *o srunused, va_list args srunused) {
+	return "database_ctl";
+}
+
 static soobjif sodbctlif =
 {
-	.ctl      = NULL,
-	.open     = NULL,
-	.destroy  = NULL,
-	.error    = NULL,
-	.set      = NULL,
-	.get      = so_dbctlget,
-	.del      = NULL,
-	.drop     = NULL,
-	.begin    = NULL,
-	.prepare  = NULL,
-	.commit   = NULL,
-	.cursor   = NULL,
-	.object   = NULL,
-	.type     = NULL
+	.ctl     = NULL,
+	.async   = NULL,
+	.open    = NULL,
+	.destroy = NULL,
+	.error   = NULL,
+	.set     = NULL,
+	.get     = so_dbctl_get,
+	.del     = NULL,
+	.drop    = NULL,
+	.begin   = NULL,
+	.prepare = NULL,
+	.commit  = NULL,
+	.cursor  = NULL,
+	.object  = NULL,
+	.type    = so_dbctl_type
 };
+
+static int
+so_dbctl_free(sodbctl *c)
+{
+	sodb *o = c->parent;
+	so *e = so_of(&o->o);
+	if (c->name) {
+		sr_free(&e->a, c->name);
+		c->name = NULL;
+	}
+	if (c->path) {
+		sr_free(&e->a, c->path);
+		c->path = NULL;
+	}
+	if (c->formatsz) {
+		sr_free(&e->a, c->formatsz);
+		c->formatsz = NULL;
+	}
+	if (c->compression) {
+		sr_free(&e->a, c->compression);
+		c->compression = NULL;
+	}
+	sr_keyfree(&c->cmp, &e->a);
+	return 0;
+}
 
 static int
 so_dbctl_init(sodbctl *c, char *name, void *db)
@@ -83,26 +114,30 @@ so_dbctl_init(sodbctl *c, char *name, void *db)
 		sr_error(&e->error, "%s", "memory allocation failed");
 		return -1;
 	}
-	sr_cmpset(&c->cmp, "string");
-	return 0;
-}
-
-static int
-so_dbctl_free(sodbctl *c)
-{
-	sodb *o = c->parent;
-	so *e = so_of(&o->o);
-	if (c->name) {
-		sr_free(&e->a, c->name);
-		c->name = NULL;
+	sr_triggerinit(&c->on_complete);
+	/* init single key part as string */
+	int rc;
+	sr_keyinit(&c->cmp);
+	srkeypart *part = sr_keyadd(&c->cmp, &e->a);
+	if (srunlikely(part == NULL)) {
+		so_dbctl_free(c);
+		return -1;
 	}
-	if (c->path) {
-		sr_free(&e->a, c->path);
-		c->path = NULL;
+	rc = sr_keypart_setname(part, &e->a, "key");
+	if (srunlikely(rc == -1)) {
+		so_dbctl_free(c);
+		return -1;
 	}
-	if (c->compression) {
-		sr_free(&e->a, c->compression);
-		c->compression = NULL;
+	rc = sr_keypart_set(part, &e->a, "string");
+	if (srunlikely(rc == -1)) {
+		so_dbctl_free(c);
+		return -1;
+	}
+	c->format = SR_FKV;
+	c->formatsz = sr_strdup(&e->a, "kv");
+	if (srunlikely(c->formatsz == NULL)) {
+		so_dbctl_free(c);
+		return -1;
 	}
 	return 0;
 }
@@ -112,15 +147,15 @@ so_dbctl_validate(sodbctl *c)
 {
 	sodb *o = c->parent;
 	so *e = so_of(&o->o);
-	/* path */
-	if (c->path == NULL) {
-		char path[1024];
-		snprintf(path, sizeof(path), "%s/%s", e->ctl.path, c->name);
-		c->path = sr_strdup(&e->a, path);
-		if (srunlikely(c->path == NULL)) {
-			sr_error(&e->error, "%s", "memory allocation failed");
-			return -1;
-		}
+	/* format */
+	if (strcmp(c->formatsz, "kv") == 0) {
+		c->format = SR_FKV;
+	} else
+	if (strcmp(c->formatsz, "document") == 0) {
+		c->format = SR_FDOCUMENT;
+	} else {
+		sr_error(&e->error, "unknown format type '%s'", c->formatsz);
+		return -1;
 	}
 	/* compression */
 	if (strcmp(c->compression, "none") == 0) {
@@ -132,10 +167,91 @@ so_dbctl_validate(sodbctl *c)
 	if (strcmp(c->compression, "lz4") == 0) {
 		c->compression_if = &sr_lz4filter;
 	} else {
-		sr_error(&e->error, "bad compression type '%s'", c->compression);
+		sr_error(&e->error, "unknown compression type '%s'", c->compression);
 		return -1;
 	}
+	/* path */
+	if (c->path == NULL) {
+		char path[1024];
+		snprintf(path, sizeof(path), "%s/%s", e->ctl.path, c->name);
+		c->path = sr_strdup(&e->a, path);
+		if (srunlikely(c->path == NULL)) {
+			sr_error(&e->error, "%s", "memory allocation failed");
+			return -1;
+		}
+	}
+	o->r.cmp = &c->cmp;
+	o->r.format = c->format;
+	o->r.compression = c->compression_if;
 	return 0;
+}
+
+static int
+so_dbasync_set(soobj *obj, va_list args)
+{
+	sodbasync *o = (sodbasync*)obj;
+	return so_txdbset(o->parent, 1, SVSET, args);
+}
+
+static int
+so_dbasync_del(soobj *obj, va_list args)
+{
+	sodbasync *o = (sodbasync*)obj;
+	return so_txdbset(o->parent, 1, SVDELETE, args);
+}
+
+static void*
+so_dbasync_get(soobj *obj, va_list args)
+{
+	sodbasync *o = (sodbasync*)obj;
+	return so_txdbget(o->parent, 1, 0, 1, args);
+}
+
+static void*
+so_dbasync_obj(soobj *obj, va_list args srunused)
+{
+	sodbasync *o = (sodbasync*)obj;
+	/* so_dbobj() */
+	so *e = so_of(&o->o);
+	return so_vnew(e, &o->parent->o);
+}
+
+static void*
+so_dbasync_type(soobj *o srunused, va_list args srunused) {
+	return "database_async";
+}
+
+static soobjif sodbasyncif =
+{
+	.ctl     = NULL,
+	.async   = NULL,
+	.destroy = NULL,
+	.error   = NULL,
+	.set     = so_dbasync_set,
+	.get     = so_dbasync_get,
+	.del     = so_dbasync_del,
+	.drop    = NULL,
+	.begin   = NULL,
+	.prepare = NULL,
+	.commit  = NULL,
+	.cursor  = NULL,
+	.object  = so_dbasync_obj,
+	.type    = so_dbasync_type
+};
+
+static inline void
+so_dbasync_init(sodbasync *a, sodb *db)
+{
+	so *e = so_of(&db->o);
+	a->parent = db;
+	so_objinit(&a->o, SODBASYNC, &sodbasyncif, &e->o);
+}
+
+static void*
+so_dbasync(soobj *obj, va_list args srunused)
+{
+	sodb *o = (sodb*)obj;
+	return &o->async.o;
 }
 
 static void*
@@ -158,8 +274,6 @@ so_dbopen(soobj *obj, va_list args srunused)
 	int rc = so_dbctl_validate(&o->ctl);
 	if (srunlikely(rc == -1))
 		return -1;
-	o->r.cmp = &o->ctl.cmp;
-	o->r.compression = o->ctl.compression_if;
 	sx_indexset(&o->coindex, o->ctl.id, o->r.cmp);
 	rc = so_recoverbegin(o);
 	if (srunlikely(rc == -1))
@@ -264,21 +378,21 @@ static int
 so_dbset(soobj *obj, va_list args)
 {
 	sodb *o = (sodb*)obj;
-	return so_txdbset(o, SVSET, args);
-}
-
-static void*
-so_dbget(soobj *obj, va_list args)
-{
-	sodb *o = (sodb*)obj;
-	return so_txdbget(o, 0, args);
+	return so_txdbset(o, 0, SVSET, args);
 }
 
 static int
 so_dbdel(soobj *obj, va_list args)
 {
 	sodb *o = (sodb*)obj;
-	return so_txdbset(o, SVDELETE, args);
+	return so_txdbset(o, 0, SVDELETE, args);
+}
+
+static void*
+so_dbget(soobj *obj, va_list args)
+{
+	sodb *o = (sodb*)obj;
+	return so_txdbget(o, 0, 0, 1, args);
 }
 
 static void*
@@ -304,6 +418,7 @@ so_dbtype(soobj *o srunused, va_list args srunused) {
 static soobjif sodbif =
 {
 	.ctl      = so_dbctl,
+	.async    = so_dbasync,
 	.open     = so_dbopen,
 	.destroy  = so_dbdestroy,
 	.error    = so_dberror,
@@ -338,6 +453,7 @@ soobj *so_dbnew(so *e, char *name)
 		sr_free(&e->a_db, o);
 		return NULL;
 	}
+	so_dbasync_init(&o->async, o);
 	rc = si_init(&o->index, &o->r, &e->quota);
 	if (srunlikely(rc == -1)) {
 		sr_free(&e->a_db, o);
@@ -464,4 +580,44 @@ int so_dbmalfunction(sodb *o)
 {
 	so_statusset(&o->status, SO_MALFUNCTION);
 	return -1;
+}
+
+svv *so_dbv(sodb *db, sov *o, int search)
+{
+	so *e = so_of(&db->o);
+	svv *v;
+	/* reuse object */
+	if (o->v.v) {
+		v = sv_vdup(db->r.a, &o->v);
+		goto ret;
+	}
+	/* create object from raw data */
+	if (o->raw) {
+		v = sv_vbuildraw(db->r.a, o->raw, o->rawsize);
+		goto ret;
+	}
+	/* create object using current format, supplied
+	 * key-chain and value */
+	if (srunlikely(o->keyc != db->ctl.cmp.count)) {
+		sr_error(&e->error, "%s", "bad object key");
+		return NULL;
+	}
+	/* switch to key-value format to avoid value
+	 * copy during search operations */
+	sr *runtime = &db->r;
+	sr  runtime_search;
+	if (search && db->r.format == SR_FDOCUMENT) {
+		runtime_search = db->r;
+		runtime_search.format = SR_FKV;
+		runtime = &runtime_search;
+	}
+	v = sv_vbuild(runtime, o->keyv, o->keyc,
+	              o->value,
+	              o->valuesize);
+ret:
+	if (srunlikely(v == NULL)) {
+		sr_error(&e->error, "%s", "memory allocation failed");
+		return NULL;
+	}
+	return v;
 }

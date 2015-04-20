@@ -10,6 +10,7 @@
 */
 
 typedef struct sodbctl sodbctl;
+typedef struct sodbasync sodbasync;
 typedef struct sodb sodb;
 
 struct sodbctl {
@@ -17,7 +18,10 @@ struct sodbctl {
 	void         *parent;
 	char         *name;
 	uint32_t      id;
-	srcomparator  cmp;
+	char         *formatsz;
+	srformat      format;
+	srkey         cmp;
+	srtrigger     on_complete;
 	char         *path;
 	uint32_t      created;
 	uint32_t      scheduled;
@@ -29,10 +33,16 @@ struct sodbctl {
 	siprofiler    rtp;
 } srpacked;
 
+struct sodbasync {
+	soobj o;
+	sodb *parent;
+};
+
 struct sodb {
 	soobj o;
 	sostatus status;
 	sodbctl ctl;
+	sodbasync async;
 	soobjindex cursor;
 	sxindex coindex;
 	sdc dc;
@@ -61,6 +71,7 @@ int       so_dbgarbage(sodb*);
 int       so_dbvisible(sodb*, uint32_t);
 void      so_dbbind(so*);
 void      so_dbunbind(so*, uint32_t);
-int       so_dbmalfunction(sodb *o);
+int       so_dbmalfunction(sodb*);
+svv      *so_dbv(sodb*, sov*, int);
 
 #endif
