@@ -19,10 +19,12 @@ struct sischeme {
 	uint32_t    path_fail_on_drop;
 	char       *path_backup;
 	uint32_t    mmap;
+	uint32_t    in_memory;
 	uint32_t    sync;
 	uint64_t    node_size;
 	uint32_t    node_page_size;
 	uint32_t    node_page_checksum;
+	uint32_t    node_compact_load;
 	uint32_t    compression;
 	char       *compression_sz;
 	ssfilterif *compression_if;

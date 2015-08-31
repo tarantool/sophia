@@ -40,7 +40,7 @@ extern stgroup *sl_group(void);
 extern stgroup *sl_iter_group(void);
 extern stgroup *sd_build_group(void);
 extern stgroup *sd_v_group(void);
-extern stgroup *sd_iter_group(void);
+extern stgroup *sd_read_group(void);
 extern stgroup *sd_pageiter_group(void);
 
 /* generic */
@@ -164,7 +164,7 @@ main(int argc, char *argv[])
 	st_suiteadd_scene(&st_r.suite, st_scene("phase_compaction", st_scene_phase_compaction, 5));
 	st_suiteadd_scene(&st_r.suite, st_scene("phase_scheme", st_scene_phase_scheme, 5));
 	st_suiteadd_scene(&st_r.suite, st_scene("phase_scheme_int", st_scene_phase_scheme_int, 3));
-	st_suiteadd_scene(&st_r.suite, st_scene("phase_storage", st_scene_phase_storage, 8));
+	st_suiteadd_scene(&st_r.suite, st_scene("phase_storage", st_scene_phase_storage, 12));
 	st_suiteadd_scene(&st_r.suite, st_scene("phase_format", st_scene_phase_format, 2));
 	st_suiteadd_scene(&st_r.suite, st_scene("phase_size", st_scene_phase_size, 3));
 	st_suiteadd_scene(&st_r.suite, st_scene("open", st_scene_open, 1));
@@ -201,7 +201,7 @@ main(int argc, char *argv[])
 	st_planadd(plan, sl_iter_group());
 	st_planadd(plan, sd_build_group());
 	st_planadd(plan, sd_v_group());
-	st_planadd(plan, sd_iter_group());
+	st_planadd(plan, sd_read_group());
 	st_planadd(plan, sd_pageiter_group());
 	st_suiteadd(&st_r.suite, plan);
 

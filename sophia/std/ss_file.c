@@ -147,6 +147,22 @@ int ss_filepread(ssfile *f, uint64_t off, void *buf, size_t size)
 	return 0;
 }
 
+int ss_filepwrite(ssfile *f, uint64_t off, void *buf, size_t size)
+{
+	size_t n = 0;
+	do {
+		ssize_t r;
+		do {
+			r = pwrite(f->fd, (char*)buf + n, size - n, off + n);
+		} while (r == -1 && errno == EINTR);
+		if (r <= 0)
+			return -1;
+		n += r;
+	} while (n != size);
+
+	return 0;
+}
+
 int ss_filewrite(ssfile *f, void *buf, size_t size)
 {
 	size_t n = 0;
@@ -196,32 +212,6 @@ int ss_fileseek(ssfile *f, uint64_t off)
 {
 	return lseek(f->fd, off, SEEK_SET);
 }
-
-#if 0
-int ss_filelock(ssfile *f)
-{
-	struct flock l;
-	memset(&l, 0, sizeof(l));
-	l.l_whence = SEEK_SET;
-	l.l_start = 0;
-	l.l_len = 0;
-	l.l_type = F_WRLCK;
-	return fcntl(f->fd, F_SETLK, &l);
-}
-
-int ss_fileunlock(ssfile *f)
-{
-	if (ssunlikely(f->fd == -1))
-		return 0;
-	struct flock l;
-	memset(&l, 0, sizeof(l));
-	l.l_whence = SEEK_SET;
-	l.l_start = 0;
-	l.l_len = 0;
-	l.l_type = F_UNLCK;
-	return fcntl(f->fd, F_SETLK, &l);
-}
-#endif
 
 int ss_filerlb(ssfile *f, uint64_t svp)
 {

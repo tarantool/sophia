@@ -14,13 +14,16 @@ typedef struct sibranch sibranch;
 struct sibranch {
 	sdid id;
 	sdindex index;
+	ssblob copy;
 	sibranch *next;
 };
 
 static inline void
-si_branchinit(sibranch *b) {
+si_branchinit(sibranch *b)
+{
 	memset(&b->id, 0, sizeof(b->id));
 	sd_indexinit(&b->index);
+	ss_blobinit(&b->copy);
 	b->next = NULL;
 }
 
@@ -47,6 +50,7 @@ static inline void
 si_branchfree(sibranch *b, sr *r)
 {
 	sd_indexfree(&b->index, r);
+	ss_blobfree(&b->copy);
 	ss_free(r->a, b);
 }
 

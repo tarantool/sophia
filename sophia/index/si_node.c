@@ -64,7 +64,7 @@ si_nodeclose(sinode *n, sr *r)
 }
 
 static inline int
-si_noderecover(sinode *n, sr *r)
+si_noderecover(sinode *n, sr *r, int in_memory)
 {
 	/* recover branches */
 	ssiter i;
@@ -89,6 +89,20 @@ si_noderecover(sinode *n, sr *r)
 		if (ssunlikely(rc == -1))
 			goto error;
 		si_branchset(b, &index);
+
+		if (in_memory) {
+			char *start = (char*)h - h->total - sizeof(sdseal);
+			char *end = start + sizeof(sdseal) + h->total +
+			            sizeof(sdindexheader) + h->size +
+			            h->extension;
+			int branch_size = end - start;
+			rc = ss_blobensure(&b->copy, branch_size);
+			if (ssunlikely(rc == -1)) {
+				sr_oom_malfunction(r->e);
+				goto error;
+			}
+			memcpy(b->copy.p, start, branch_size);
+		}
 
 		b->next   = n->branch;
 		n->branch = b;
@@ -117,27 +131,26 @@ int si_nodeopen(sinode *n, sr *r, sischeme *scheme, sspath *path)
 	}
 	rc = ss_fileseek(&n->file, n->file.size);
 	if (ssunlikely(rc == -1)) {
-		si_nodeclose(n, r);
 		sr_malfunction(r->e, "db file '%s' seek error: %s",
 		               n->file.file, strerror(errno));
-		return -1;
+		goto error;
 	}
-	rc = si_noderecover(n, r);
+	rc = si_noderecover(n, r, scheme->in_memory);
 	if (ssunlikely(rc == -1))
-		si_nodeclose(n, r);
+		goto error;
 	if (scheme->mmap) {
 		rc = si_nodemap(n, r);
 		if (ssunlikely(rc == -1))
-			si_nodeclose(n, r);
+			goto error;
 	}
-	return rc;
+	return 0;
+error:
+	si_nodeclose(n, r);
+	return -1;
 }
 
-int si_nodecreate(sinode *n, sr *r, sischeme *scheme, sdid *id,
-                  sdindex *i,
-                  sdbuild *build)
+int si_nodecreate(sinode *n, sr *r, sischeme *scheme, sdid *id)
 {
-	si_branchset(&n->self, i);
 	sspath path;
 	ss_pathAB(&path, scheme->path, id->parent, id->id, ".db.incomplete");
 	int rc = ss_filenew(&n->file, path.path);
@@ -146,16 +159,6 @@ int si_nodecreate(sinode *n, sr *r, sischeme *scheme, sdid *id,
 		               path.path, strerror(errno));
 		return -1;
 	}
-	rc = sd_commit(build, r, &n->self.index, &n->file);
-	if (ssunlikely(rc == -1))
-		return -1;
-	if (scheme->mmap) {
-		rc = si_nodemap(n, r);
-		if (ssunlikely(rc == -1))
-			return -1;
-	}
-	n->branch = &n->self;
-	n->branch_count++;
 	return 0;
 }
 
@@ -164,17 +167,6 @@ int si_nodemap(sinode *n, sr *r)
 	int rc = ss_mmap(&n->map, n->file.fd, n->file.size, 1);
 	if (ssunlikely(rc == -1)) {
 		sr_malfunction(r->e, "db file '%s' mmap error: %s",
-		               n->file.file, strerror(errno));
-		return -1;
-	}
-	return 0;
-}
-
-int si_nodesync(sinode *n, sr *r)
-{
-	int rc = ss_filesync(&n->file);
-	if (ssunlikely(rc == -1)) {
-		sr_malfunction(r->e, "db file '%s' sync error: %s",
 		               n->file.file, strerror(errno));
 		return -1;
 	}
@@ -192,6 +184,7 @@ si_nodefree_branches(sinode *n, sr *r)
 		p = next;
 	}
 	sd_indexfree(&n->self.index, r);
+	ss_blobfree(&n->self.copy);
 }
 
 int si_nodefree(sinode *n, sr *r, int gc)
@@ -225,17 +218,42 @@ int si_nodegc_index(sr *r, svindex *i)
 	return 0;
 }
 
+int si_noderead(sinode *n, sr *r, ssbuf *dest)
+{
+	int rc = ss_bufensure(dest, r->a, n->file.size);
+	if (ssunlikely(rc == -1))
+		return sr_oom_malfunction(r->e);
+	rc = ss_filepread(&n->file, 0, dest->s, n->file.size);
+	if (ssunlikely(rc == -1)) {
+		sr_malfunction(r->e, "db file '%s' read error: %s",
+		               n->file.file, strerror(errno));
+		return -1;
+	}
+	ss_bufadvance(dest, n->file.size);
+	return 0;
+}
+
 int si_nodeseal(sinode *n, sr *r, sischeme *scheme)
 {
+	int rc;
+	if (scheme->sync) {
+		rc = ss_filesync(&n->file);
+		if (ssunlikely(rc == -1)) {
+			sr_malfunction(r->e, "db file '%s' sync error: %s",
+			               n->file.file, strerror(errno));
+			return -1;
+		}
+	}
 	sspath path;
 	ss_pathAB(&path, scheme->path, n->self.id.parent,
 	          n->self.id.id, ".db.seal");
-	int rc = ss_filerename(&n->file, path.path);
+	rc = ss_filerename(&n->file, path.path);
 	if (ssunlikely(rc == -1)) {
 		sr_malfunction(r->e, "db file '%s' rename error: %s",
 		               n->file.file, strerror(errno));
+		return -1;
 	}
-	return rc;
+	return 0;
 }
 
 int si_nodecomplete(sinode *n, sr *r, sischeme *scheme)
