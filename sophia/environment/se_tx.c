@@ -25,7 +25,7 @@ se_txwrite(setx *t, sev *o, uint8_t flags)
 	se *e = se_of(&t->o);
 	sedb *db = se_cast(o->o.parent, sedb*, SEDB);
 	/* validate req */
-	if (ssunlikely(t->t.s == SXPREPARE)) {
+	if (ssunlikely(t->t.state == SXPREPARE)) {
 		sr_error(&e->error, "%s", "transaction is in 'prepare' state (read-only)");
 		goto error;
 	}
@@ -127,7 +127,7 @@ error:
 void se_txend(setx *t)
 {
 	se *e = se_of(&t->o);
-	sx_gc(&t->t, &e->r);
+	sx_gc(&t->t);
 	se_dbunbind(e, t->t.id);
 	so_listdel(&e->tx, &t->o);
 	se_mark_destroyed(&t->o);
@@ -143,69 +143,6 @@ se_txrollback(so *o)
 	return 0;
 }
 
-static sxstate
-se_txprepare_trigger(sx *t, sv *v, void *arg0, void *arg1)
-{
-	sicache *cache = arg0;
-	sedb *db = arg1;
-	se *e = se_of(&db->o);
-	uint64_t lsn = sr_seq(e->r.seq, SR_LSN);
-	if (t->vlsn == lsn)
-		return SXPREPARE;
-	siquery q;
-	si_queryopen(&q, cache, &db->index,
-	             SS_EQ, t->vlsn,
-	             NULL, 0,
-	             sv_pointer(v), sv_size(v));
-	si_queryhas(&q);
-	int rc;
-	rc = si_query(&q);
-	assert(q.result.v == NULL);
-	si_queryclose(&q);
-	if (ssunlikely(rc))
-		return SXROLLBACK;
-	return SXPREPARE;
-}
-
-static int
-se_txprepare(so *o)
-{
-	setx *t = se_cast(o, setx*, SETX);
-	se *e = se_of(o);
-	int status = se_status(&e->status);
-	if (ssunlikely(! se_statusactive_is(status)))
-		return -1;
-	sicache *cache = si_cachepool_pop(&e->cachepool);
-	if (ssunlikely(cache == NULL))
-		return sr_oom(&e->error);
-	/* resolve conflicts */
-	sxpreparef prepare_trigger = se_txprepare_trigger;
-	if (status == SE_RECOVER)
-		prepare_trigger = NULL;
-	sxstate s = sx_prepare(&t->t, prepare_trigger, cache);
-	si_cachepool_push(cache);
-	if (s == SXLOCK)
-		return 2;
-	if (s == SXROLLBACK) {
-		sx_rollback(&t->t);
-		se_txend(t);
-		return 1;
-	}
-	assert(s == SXPREPARE);
-	if (t->half_commit) {
-		/* Half commit mode.
-		 *
-		 * A half committed transaction is no longer
-		 * being part of concurrent index, but still can be
-		 * commited or rolled back.
-		 * Yet, it is important to maintain external
-		 * serial commit order.
-		*/
-		sx_complete(&t->t);
-	}
-	return 0;
-}
-
 static int
 se_txcommit(so *o)
 {
@@ -215,24 +152,42 @@ se_txcommit(so *o)
 	if (ssunlikely(! se_statusactive_is(status)))
 		return -1;
 	int recover = (status == SE_RECOVER);
-
 	/* prepare transaction */
 	if (ssunlikely(! sv_logcount(&t->t.log))) {
-		sx_prepare(&t->t, NULL, NULL);
+		sx_prepare(&t->t);
 		sx_commit(&t->t);
 		se_txend(t);
 		return 0;
 	}
-	int rc;
-	if (sslikely(t->t.s == SXREADY || t->t.s == SXLOCK)) {
-		rc = se_txprepare(&t->o);
-		if (ssunlikely(rc != 0))
-			return rc;
-	}
-	assert(t->t.s == SXPREPARE);
-	sx_commit(&t->t);
+	if (t->t.state == SXREADY || t->t.state == SXLOCK)
+	{
+		sxstate s = sx_prepare(&t->t);
+		if (s == SXLOCK)
+			return 2;
+		if (s == SXROLLBACK) {
+			sx_rollback(&t->t);
+			se_txend(t);
+			return 1;
+		}
+		assert(s == SXPREPARE);
 
-	/* prepare for commit */
+		sx_commit(&t->t);
+
+		if (t->half_commit) {
+			/* Half commit mode.
+			 *
+			 * A half committed transaction is no longer
+			 * being part of concurrent index, but still can be
+			 * commited or rolled back.
+			 * Yet, it is important to maintain external
+			 * serial commit order.
+			*/
+			return 0;
+		}
+	}
+	assert(t->t.state == SXCOMMIT);
+
+	/* prepare for wal and index write */
 	sereq q;
 	se_reqinit(e, &q, SE_REQWRITE, &t->o, NULL);
 	sereqarg *arg = &q.arg;
@@ -291,7 +246,7 @@ static soif setxif =
 	.get          = se_txget,
 	.batch        = NULL,
 	.begin        = NULL,
-	.prepare      = se_txprepare,
+	.prepare      = NULL,
 	.commit       = se_txcommit,
 	.cursor       = NULL,
 };
@@ -307,7 +262,7 @@ so *se_txnew(se *e)
 	so_init(&t->o, &se_o[SETX], &setxif, &e->o, &e->o);
 	sx_init(&e->xm, &t->t);
 	t->lsn = 0;
-	sx_begin(&e->xm, &t->t, 0);
+	sx_begin(&e->xm, &t->t, SXRW, 0);
 	se_dbbind(e);
 	so_listadd(&e->tx, &t->o);
 	return &t->o;

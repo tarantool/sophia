@@ -82,13 +82,13 @@ so *se_cursornew(se *e, uint64_t vlsn)
 	}
 	so_init(&c->o, &se_o[SECURSOR], &secursorif, &e->o, &e->o);
 	sx_init(&e->xm, &c->t);
-	c->t.s = SXUNDEF;
+	c->t.state = SXUNDEF;
 	c->cache = si_cachepool_pop(&e->cachepool);
 	if (ssunlikely(c->cache == NULL)) {
 		ss_free(&e->a_cursor, c);
 		return NULL;
 	}
-	sx_begin(&e->xm, &c->t, vlsn);
+	sx_begin(&e->xm, &c->t, SXRO, vlsn);
 	se_dbbind(e);
 	so_listadd(&e->cursor, &c->o);
 	return &c->o;

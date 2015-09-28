@@ -85,12 +85,10 @@ sd_read_gt0(void)
 		.buf_read        = NULL,
 		.index_iter      = &index_iter,
 		.page_iter       = &page_iter,
-		.vlsn            = 0,
 		.mmap            = &map,
 		.memory          = NULL,
 		.file            = NULL,
 		.o               = SS_GT,
-		.has             = 0,
 		.use_compression = 0,
 		.use_memory      = 0,
 		.use_mmap        = 1,
@@ -212,12 +210,10 @@ sd_read_gt1(void)
 		.buf_read        = NULL,
 		.index_iter      = &index_iter,
 		.page_iter       = &page_iter,
-		.vlsn            = 0,
 		.mmap            = &map,
 		.memory          = NULL,
 		.file            = NULL,
 		.o               = SS_GT,
-		.has             = 0,
 		.use_compression = 0,
 		.use_memory      = 0,
 		.use_mmap        = 1,
@@ -349,12 +345,10 @@ sd_read_gt0_compression_zstd(void)
 		.buf_read        = NULL,
 		.index_iter      = &index_iter,
 		.page_iter       = &page_iter,
-		.vlsn            = 0,
 		.mmap            = &map,
 		.memory          = NULL,
 		.file            = NULL,
 		.o               = SS_GT,
-		.has             = 0,
 		.use_compression = 1,
 		.use_memory      = 0,
 		.use_mmap        = 1,
@@ -466,12 +460,10 @@ sd_read_gt0_compression_lz4(void)
 		.buf_read        = NULL,
 		.index_iter      = &index_iter,
 		.page_iter       = &page_iter,
-		.vlsn            = 0,
 		.mmap            = &map,
 		.memory          = NULL,
 		.file            = NULL,
 		.o               = SS_GT,
-		.has             = 0,
 		.use_compression = 1,
 		.use_memory      = 0,
 		.use_mmap        = 1,
@@ -555,7 +547,7 @@ sd_read_gt1_compression_zstd(void)
 	rc = sd_indexadd(&index, &r, &b, poff);
 	t( rc == 0 );
 	t( sd_buildcommit(&b, &r) == 0 );
-	sd_buildreset(&b);
+	sd_buildreset(&b, &r);
 
 	t( sd_buildbegin(&b, &r, 1, 1, 0) == 0);
 	key = 10;
@@ -571,7 +563,7 @@ sd_read_gt1_compression_zstd(void)
 	rc = sd_indexadd(&index, &r, &b, poff);
 	t( rc == 0 );
 	t( sd_buildcommit(&b, &r) == 0 );
-	sd_buildreset(&b);
+	sd_buildreset(&b, &r);
 
 	t( sd_buildbegin(&b, &r, 1, 1, 0) == 0);
 	key = 15;
@@ -614,12 +606,10 @@ sd_read_gt1_compression_zstd(void)
 		.buf_read        = NULL,
 		.index_iter      = &index_iter,
 		.page_iter       = &page_iter,
-		.vlsn            = 0,
 		.mmap            = &map,
 		.memory          = NULL,
 		.file            = NULL,
 		.o               = SS_GT,
-		.has             = 0,
 		.use_compression = 1,
 		.use_memory      = 0,
 		.use_mmap        = 1,
@@ -726,7 +716,7 @@ sd_read_gt1_compression_lz4(void)
 	rc = sd_indexadd(&index, &r, &b, poff);
 	t( rc == 0 );
 	t( sd_buildcommit(&b, &r) == 0 );
-	sd_buildreset(&b);
+	sd_buildreset(&b, &r);
 
 	t( sd_buildbegin(&b, &r, 1, 1, 0) == 0);
 	key = 10;
@@ -742,7 +732,7 @@ sd_read_gt1_compression_lz4(void)
 	rc = sd_indexadd(&index, &r, &b, poff);
 	t( rc == 0 );
 	t( sd_buildcommit(&b, &r) == 0 );
-	sd_buildreset(&b);
+	sd_buildreset(&b, &r);
 
 	t( sd_buildbegin(&b, &r, 1, 1, 0) == 0);
 	key = 15;
@@ -785,12 +775,10 @@ sd_read_gt1_compression_lz4(void)
 		.buf_read        = NULL,
 		.index_iter      = &index_iter,
 		.page_iter       = &page_iter,
-		.vlsn            = 0,
 		.mmap            = &map,
 		.memory          = NULL,
 		.file            = NULL,
 		.o               = SS_GT,
-		.has             = 0,
 		.use_compression = 1,
 		.use_memory      = 0,
 		.use_mmap        = 1,
