@@ -134,47 +134,6 @@ se_dbscheme_set(sedb *db)
 	return 0;
 }
 
-static void*
-se_dbasync_object(so *o)
-{
-	(void)se_cast(o, so*, SEDBASYNC);
-	sedb *db = se_cast(o->parent, sedb*, SEDB);
-	se *e = se_of(&db->o);
-	return se_vnew(e, &db->o, NULL, 1);
-}
-
-static soif sedbasyncif =
-{
-	.open         = NULL,
-	.destroy      = NULL,
-	.error        = NULL,
-	.object       = se_dbasync_object,
-	.asynchronous = NULL,
-	.poll         = NULL,
-	.drop         = NULL,
-	.setobject    = NULL,
-	.setstring    = NULL,
-	.setint       = NULL,
-	.getobject    = NULL,
-	.getstring    = NULL,
-	.getint       = NULL,
-	.set          = NULL,
-	.update       = NULL,
-	.del          = NULL,
-	.get          = NULL,
-	.batch        = NULL,
-	.begin        = NULL,
-	.prepare      = NULL,
-	.commit       = NULL,
-	.cursor       = NULL,
-};
-
-static void*
-se_dbasync(so *o)
-{
-	return &se_cast(o, sedb*, SEDB)->async;
-}
-
 static int
 se_dbopen(so *o)
 {
@@ -288,18 +247,19 @@ se_dbread(sedb *db, sev *o, sx *x, int x_search,
           sicache *cache, ssorder order)
 {
 	se *e = se_of(&db->o);
-	/* validate req */
+	/* validate request */
 	if (ssunlikely(o->o.parent != &db->o)) {
 		sr_error(&e->error, "%s", "bad object parent");
 		return NULL;
 	}
 	if (ssunlikely(! se_online(&db->status)))
 		goto e0;
-	int cache_only = o->cache_only;
-	int async = o->async;
+	int cache_only  = o->cache_only;
+	int async       = o->async;
 	void *async_arg = o->async_arg;
 
-	/* set key */
+	uint64_t start  = ss_utime();
+	/* prepare search key */
 	svv *v;
 	int rc = se_dbv(db, o, 1, &v);
 	if (ssunlikely(rc == -1))
@@ -309,14 +269,12 @@ se_dbread(sedb *db, sev *o, sx *x, int x_search,
 	}
 	sv vp;
 	sv_init(&vp, &sv_vif, v, NULL);
-	/* set prefix */
 	svv *vprf;
 	rc = se_dbvprefix(db, o, &vprf);
 	if (ssunlikely(rc == -1))
 		goto e1;
 	sv vprefix;
 	sv_init(&vprefix, &sv_vif, vprf, NULL);
-	/* if key is not set: use prefix */
 	if (vprf && v == NULL) {
 		v = sv_vdup(&db->r, &vprefix);
 		sv_init(&vp, &sv_vif, v, NULL);
@@ -369,6 +327,7 @@ se_dbread(sedb *db, sev *o, sx *x, int x_search,
 	/* prepare request */
 	sereq q;
 	se_reqinit(e, &q, SE_REQREAD, &db->o, &db->o);
+	q.start = start;
 	sereqarg *arg = &q.arg;
 	arg->v          = vp;
 	arg->vup        = vup;
@@ -492,7 +451,11 @@ se_dbset(so *o, so *v)
 {
 	sedb *db = se_cast(o, sedb*, SEDB);
 	sev *key = se_cast(v, sev*, SEV);
-	return se_dbwrite(db, key, 0);
+	se *e = se_of(&db->o);
+	uint64_t start = ss_utime();
+	int rc = se_dbwrite(db, key, 0);
+	sr_statset(&e->stat, start);
+	return rc;
 }
 
 static int
@@ -500,7 +463,11 @@ se_dbupdate(so *o, so *v)
 {
 	sedb *db = se_cast(o, sedb*, SEDB);
 	sev *key = se_cast(v, sev*, SEV);
-	return se_dbwrite(db, key, SVUPDATE);
+	se *e = se_of(&db->o);
+	uint64_t start = ss_utime();
+	int rc = se_dbwrite(db, key, SVUPDATE);
+	sr_statupdate(&e->stat, start);
+	return rc;
 }
 
 static int
@@ -508,7 +475,11 @@ se_dbdel(so *o, so *v)
 {
 	sedb *db = se_cast(o, sedb*, SEDB);
 	sev *key = se_cast(v, sev*, SEV);
-	return se_dbwrite(db, key, SVDELETE);
+	se *e = se_of(&db->o);
+	uint64_t start = ss_utime();
+	int rc = se_dbwrite(db, key, SVDELETE);
+	sr_statdelete(&e->stat, start);
+	return rc;
 }
 
 static void*
@@ -569,7 +540,6 @@ static soif sedbif =
 	.destroy      = se_dbdestroy,
 	.error        = NULL,
 	.object       = se_dbobject,
-	.asynchronous = se_dbasync,
 	.poll         = NULL,
 	.drop         = se_dbdrop,
 	.setobject    = NULL,
@@ -598,7 +568,6 @@ so *se_dbnew(se *e, char *name)
 	}
 	memset(o, 0, sizeof(*o));
 	so_init(&o->o, &se_o[SEDB], &sedbif, &e->o, &e->o);
-	so_init(&o->async, &se_o[SEDBASYNC], &sedbasyncif, &o->o, &e->o);
 	so_listinit(&o->batch);
 	se_statusinit(&o->status);
 	se_statusset(&o->status, SE_OFFLINE);
