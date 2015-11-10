@@ -23,8 +23,7 @@ extern "C" {
 #endif
 
 SP_API void    *sp_env(void);
-SP_API void    *sp_object(void*);
-SP_API int      sp_setobject(void*, const char*, const void*);
+SP_API void    *sp_document(void*);
 SP_API int      sp_setstring(void*, const char*, const void*, int);
 SP_API int      sp_setint(void*, const char*, int64_t);
 SP_API void    *sp_getobject(void*, const char*);
@@ -40,7 +39,6 @@ SP_API int      sp_update(void*, void*);
 SP_API int      sp_delete(void*, void*);
 SP_API void    *sp_get(void*, void*);
 SP_API void    *sp_cursor(void*);
-SP_API void    *sp_batch(void*);
 SP_API void    *sp_begin(void*);
 SP_API int      sp_prepare(void*);
 SP_API int      sp_commit(void*);

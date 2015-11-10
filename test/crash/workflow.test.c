@@ -15,10 +15,10 @@
 #include <libsd.h>
 #include <libst.h>
 
-static int oom_update_n = 0;
+static int workflow_update_n = 0;
 
 static int
-oom_update_operator(int a_flags, void *a, int a_size,
+workflow_update_operator(int a_flags, void *a, int a_size,
                     int b_flags, void *b, int b_size, void *arg,
                     void **result, int *result_size)
 {
@@ -29,8 +29,8 @@ oom_update_operator(int a_flags, void *a, int a_size,
 	assert(b_flags == SVUPDATE);
 	assert(b != NULL);
 	(void)arg;
-	oom_update_n++;
-	if (oom_update_n == 1)
+	workflow_update_n++;
+	if (workflow_update_n == 1)
 		return -1;
 	char *c = malloc(b_size);
 	memcpy(c, b, b_size);
@@ -40,7 +40,7 @@ oom_update_operator(int a_flags, void *a, int a_size,
 }
 
 static inline void*
-oom_open(void *env)
+workflow_open(void *env)
 {
 	int rc;
 	rc = sp_setstring(env, "sophia.path", st_r.conf->sophia_dir, 0);
@@ -53,6 +53,9 @@ oom_open(void *env)
 	if (rc == -1)
 		return NULL;
 	rc = sp_setstring(env, "log.path", st_r.conf->log_dir, 0);
+	if (rc == -1)
+		return NULL;
+	rc = sp_setint(env, "log.sync", 0);
 	if (rc == -1)
 		return NULL;
 	rc = sp_setstring(env, "db", "test", 0);
@@ -73,7 +76,7 @@ oom_open(void *env)
 	rc = sp_setstring(env, "db.test.index.key", "u32", 0);
 	if (rc == -1)
 		return NULL;
-	rc = sp_setstring(env, "db.test.index.update", oom_update_operator, 0);
+	rc = sp_setstring(env, "db.test.index.update", workflow_update_operator, 0);
 	if (rc == -1)
 		return NULL;
 	rc = sp_setint(env, "db.test.sync", 0);
@@ -89,10 +92,10 @@ oom_open(void *env)
 }
 
 static inline int
-oom_write_read(void *env, void *db)
+workflow_write_read(void *env, void *db)
 {
 	/* write */
-	void *o = sp_object(db);
+	void *o = sp_document(db);
 	if (o == NULL)
 		return -1;
 	uint32_t key = 123;
@@ -115,7 +118,7 @@ oom_write_read(void *env, void *db)
 	void *tx = sp_begin(env);
 	if (tx == NULL)
 		return -1;
-	o = sp_object(db);
+	o = sp_document(db);
 	if (o == NULL)
 		return -1;
 	key = 123;
@@ -136,7 +139,7 @@ oom_write_read(void *env, void *db)
 		sp_destroy(tx);
 		return -1;
 	}
-	o = sp_object(db);
+	o = sp_document(db);
 	if (o == NULL)
 		return -1;
 	rc = sp_setstring(o, "key", &key, sizeof(key));
@@ -156,7 +159,7 @@ oom_write_read(void *env, void *db)
 		return -1;
 
 	/* read */
-	o = sp_object(db);
+	o = sp_document(db);
 	if (o == NULL)
 		return -1;
 	rc = sp_setstring(o, "key", &key, sizeof(key));
@@ -173,7 +176,7 @@ oom_write_read(void *env, void *db)
 	void *c = sp_cursor(env);
 	if (c == NULL)
 		return -1;
-	o = sp_object(db);
+	o = sp_document(db);
 	if (o == NULL) {
 		sp_destroy(c);
 		return -1;
@@ -189,9 +192,9 @@ oom_write_read(void *env, void *db)
 }
 
 static inline int
-oom_update(void *env, void *db)
+workflow_update(void *env, void *db)
 {
-	void *o = sp_object(db);
+	void *o = sp_document(db);
 	if (o == NULL)
 		return -1;
 	int up = 777;
@@ -201,7 +204,7 @@ oom_update(void *env, void *db)
 	int rc = sp_update(db, o);
 	if (rc == -1)
 		return -1;
-	o = sp_object(db);
+	o = sp_document(db);
 	if (o == NULL)
 		return -1;
 	up = 778;
@@ -210,7 +213,7 @@ oom_update(void *env, void *db)
 	rc = sp_update(db, o);
 	if (rc == -1)
 		return -1;
-	o = sp_object(db);
+	o = sp_document(db);
 	if (o == NULL)
 		return -1;
 	sp_setstring(o, "key", &i, sizeof(i));
@@ -223,7 +226,7 @@ oom_update(void *env, void *db)
 }
 
 static inline int
-oom_compaction(void *env, void *db)
+workflow_compaction(void *env, void *db)
 {
 	/* branch oom */
 	int rc = sp_setint(env, "db.test.branch", 0);
@@ -232,7 +235,7 @@ oom_compaction(void *env, void *db)
 	uint32_t key = 123;
 	int count = 0;
 	while (count < 10) {
-		void *o = sp_object(db);
+		void *o = sp_document(db);
 		if (o == NULL)
 			return -1;
 		rc = sp_setstring(o, "key", &key, sizeof(key));
@@ -256,7 +259,7 @@ oom_compaction(void *env, void *db)
 		return -1;
 	/* put some statements in log */
 	while (count < 15) {
-		void *o = sp_object(db);
+		void *o = sp_document(db);
 		if (o == NULL)
 			return -1;
 		rc = sp_setstring(o, "key", &key, sizeof(key));
@@ -282,9 +285,11 @@ oom_compaction(void *env, void *db)
 	return 0;
 }
 
-static void
-oom_test(void)
+void
+workflow_test(char *injection)
 {
+	workflow_update_n = 0;
+
 	int i = 0;
 	int j = 0;
 	for (;; i++) {
@@ -294,49 +299,44 @@ oom_test(void)
 		/* open */
 		void *env = sp_env();
 		t( env != NULL );
-		t( sp_setint(env, "debug.error_injection.oom", i) == 0 );
-		void *db = oom_open(env);
+		t( sp_setint(env, injection, i) == 0 );
+		void *db = workflow_open(env);
 		if (db == NULL) {
-			t( sp_destroy(env) == 0 );
+			sp_destroy(env); /* close(2) might fail */
 			continue;
 		}
 		/* write, transaction, read, get, cursor */
-		int rc = oom_write_read(env, db);
+		int rc = workflow_write_read(env, db);
 		if (rc == -1) {
-			t( sp_destroy(env) == 0 );
+			sp_destroy(env);
 			continue;
 		}
 		/* update */
-		rc = oom_update(env, db);
+		rc = workflow_update(env, db);
 		if (rc == -1) {
-			t( sp_destroy(env) == 0 );
+			sp_destroy(env);
 			continue;
 		}
 		/* branch + compaction */
-		rc = oom_compaction(env, db);
+		rc = workflow_compaction(env, db);
 		if (rc == -1) {
-			t( sp_destroy(env) == 0 );
+			sp_destroy(env);
 			continue;
 		}
-		t( sp_destroy(env) == 0 );
+		sp_destroy(env);
 		/* recover */
 		env = sp_env();
 		t( env != NULL );
-		t( sp_setint(env, "debug.error_injection.oom", j) == 0 );
-		db = oom_open(env);
+		t( sp_setint(env, injection, j) == 0 );
+		db = workflow_open(env);
 		if (db == NULL) {
 			j++;
-			t( sp_destroy(env) == 0 );
+			sp_destroy(env);
 			continue;
 		}
-		t( sp_destroy(env) == 0 );
+		sp_destroy(env);
 		break;
 	}
 }
 
-stgroup *oom_group(void)
-{
-	stgroup *group = st_group("oom");
-	st_groupadd(group, st_test("test", oom_test));
-	return group;
-}
+/* see io and oom tests */

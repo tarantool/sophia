@@ -13,17 +13,15 @@ enum {
 	SEUNDEF,
 	SEDESTROYED,
 	SE,
-	SEMETA,
-	SEMETACURSOR,
-	SEMETAV,
+	SECONF,
+	SECONFCURSOR,
+	SECONFKV,
 	SEREQ,
-	SEV,
+	SEDOCUMENT,
 	SEDB,
-	SEBATCH,
+	SEDBCURSOR,
 	SETX,
-	SECURSOR,
-	SESNAPSHOT,
-	SESNAPSHOTCURSOR
+	SECURSOR
 };
 
 extern sotype se_o[];
@@ -36,7 +34,7 @@ se_cast_validate(void *ptr)
 {
 	so *o = ptr;
 	if ((char*)o->type >= (char*)&se_o[0] &&
-	    (char*)o->type <= (char*)&se_o[SESNAPSHOTCURSOR])
+	    (char*)o->type <= (char*)&se_o[SECURSOR])
 		return ptr;
 	return NULL;
 }

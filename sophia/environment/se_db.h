@@ -18,7 +18,6 @@ struct sedb {
 	uint32_t   scheduled;
 	uint32_t   dropped;
 	siprofiler rtp;
-	solist     batch;
 	sdc        dc;
 	sischeme   scheme;
 	si         index;
@@ -39,7 +38,7 @@ se_dbactive(sedb *o) {
 so       *se_dbnew(se*, char*);
 so       *se_dbmatch(se*, char*);
 so       *se_dbmatch_id(se*, uint32_t);
-void     *se_dbread(sedb*, sev*, sx*, int, sicache*, ssorder);
+void     *se_dbread(sedb*, sedocument*, sx*, int, sicache*, ssorder);
 void      se_dbref(sedb*, int);
 uint32_t  se_dbunref(sedb*, int);
 uint32_t  se_dbrefof(sedb*, int);
@@ -48,7 +47,7 @@ int       se_dbvisible(sedb*, uint32_t);
 void      se_dbbind(se*);
 void      se_dbunbind(se*, uint32_t);
 int       se_dbmalfunction(sedb*);
-int       se_dbv(sedb*, sev*, int, svv**);
-int       se_dbvprefix(sedb*, sev*, svv**);
+int       se_dbv(sedb*, sedocument*, int, svv**);
+int       se_dbvprefix(sedb*, sedocument*, svv**);
 
 #endif

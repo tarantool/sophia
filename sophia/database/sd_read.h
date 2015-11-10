@@ -13,23 +13,24 @@ typedef struct sdread sdread;
 typedef struct sdreadarg sdreadarg;
 
 struct sdreadarg {
-	sdindex  *index;
-	ssbuf    *buf;
-	ssbuf    *buf_xf;
-	ssbuf    *buf_read;
-	ssiter   *index_iter;
-	ssiter   *page_iter;
-	ssmmap   *mmap;
-	ssblob   *memory;
-	ssfile   *file;
-	ssorder   o;
-	int       has;
-	uint64_t  has_vlsn;
-	int       use_compression;
-	int       use_memory;
-	int       use_mmap;
-	int       use_mmap_copy;
-	sr       *r;
+	sdindex    *index;
+	ssbuf      *buf;
+	ssbuf      *buf_xf;
+	ssbuf      *buf_read;
+	ssiter     *index_iter;
+	ssiter     *page_iter;
+	ssmmap     *mmap;
+	ssblob     *memory;
+	ssfile     *file;
+	ssorder     o;
+	int         has;
+	uint64_t    has_vlsn;
+	int         use_memory;
+	int         use_mmap;
+	int         use_mmap_copy;
+	int         use_compression;
+	ssfilterif *compression_if;
+	sr         *r;
 };
 
 struct sdread {
@@ -79,7 +80,8 @@ sd_read_page(sdread *i, sdindexpage *ref)
 			rc = ss_filepread(arg->file, ref->offset, arg->buf_read->s, ref->size);
 			if (ssunlikely(rc == -1)) {
 				sr_error(r->e, "db file '%s' read error: %s",
-				         arg->file->file, strerror(errno));
+				         ss_pathof(&arg->file->path),
+				         strerror(errno));
 				return -1;
 			}
 			ss_bufadvance(arg->buf_read, ref->size);
@@ -92,15 +94,17 @@ sd_read_page(sdread *i, sdindexpage *ref)
 
 		/* decompression */
 		ssfilter f;
-		rc = ss_filterinit(&f, (ssfilterif*)r->compression, r->a, SS_FOUTPUT);
+		rc = ss_filterinit(&f, (ssfilterif*)arg->compression_if, r->a, SS_FOUTPUT);
 		if (ssunlikely(rc == -1)) {
-			sr_error(r->e, "db file '%s' decompression error", arg->file->file);
+			sr_error(r->e, "db file '%s' decompression error",
+			         ss_pathof(&arg->file->path));
 			return -1;
 		}
 		int size = ref->size - sizeof(sdpageheader);
 		rc = ss_filternext(&f, arg->buf, page_pointer + sizeof(sdpageheader), size);
 		if (ssunlikely(rc == -1)) {
-			sr_error(r->e, "db file '%s' decompression error", arg->file->file);
+			sr_error(r->e, "db file '%s' decompression error",
+			         ss_pathof(&arg->file->path));
 			return -1;
 		}
 		ss_filterfree(&f);
@@ -129,7 +133,8 @@ sd_read_page(sdread *i, sdindexpage *ref)
 	rc = ss_filepread(arg->file, ref->offset, arg->buf->s, ref->sizeorigin);
 	if (ssunlikely(rc == -1)) {
 		sr_error(r->e, "db file '%s' read error: %s",
-		         arg->file->file, strerror(errno));
+		         ss_pathof(&arg->file->path),
+		         strerror(errno));
 		return -1;
 	}
 	ss_bufadvance(arg->buf, ref->sizeorigin);

@@ -54,6 +54,7 @@ void st_scene_init(stscene *s ssunused)
 {
 	st_listinit(&st_r.gc, 1);
 	ss_aopen(&st_r.a, &ss_stda);
+	ss_vfsinit(&st_r.vfs, &ss_stdvfs);
 	sr_schemeinit(&st_r.scheme);
 	memset(&st_r.injection, 0, sizeof(st_r.injection));
 	memset(&st_r.stat, 0, sizeof(st_r.stat));
@@ -80,6 +81,7 @@ void st_scene_scheme_u32(stscene *s ssunused)
 void st_scene_rt(stscene *s ssunused)
 {
 	sr_init(&st_r.r, &st_r.error, &st_r.a,
+	        &st_r.vfs,
 	        NULL, /* quota */
 	        &st_r.seq,
 	         st_r.fmt,
@@ -88,8 +90,7 @@ void st_scene_rt(stscene *s ssunused)
 	        &st_r.scheme,
 	        &st_r.injection,
 	        &st_r.stat,
-	         st_r.crc,
-	         st_r.compression);
+	         st_r.crc);
 
 	st_generator_init(&st_r.g, &st_r.r,
 	                  st_r.key_start,
@@ -102,6 +103,7 @@ void st_scene_gc(stscene *s ssunused)
 {
 	st_listfree(&st_r.gc, &st_r.r);
 	ss_aclose(&st_r.a);
+	ss_vfsfree(&st_r.vfs);
 	sr_errorfree(&st_r.error);
 	sr_seqfree(&st_r.seq);
 	sr_schemefree(&st_r.scheme, &st_r.a);
@@ -134,6 +136,7 @@ void st_scene_env(stscene *s ssunused)
 	t( sp_setint(env, "db.test.sync", 0) == 0 );
 	t( sp_setint(env, "db.test.mmap", 0) == 0 );
 	t( sp_setstring(env, "db.test.compression", "none", 0) == 0 );
+	t( sp_setstring(env, "db.test.compression_branch", "none", 0) == 0 );
 	t( sp_setstring(env, "db.test.index.key", "u32", 0) == 0 );
 
 	st_r.db = sp_getobject(env, "db.test");
@@ -183,11 +186,11 @@ void st_scene_truncate(stscene *s ssunused)
 	}
 	void *c = sp_cursor(st_r.env);
 	t( c != NULL );
-	void *o = sp_object(st_r.db);
+	void *o = sp_document(st_r.db);
 	t( o != NULL );
 	t( sp_setstring(o, "order", ">=", 0) == 0 );
 	while ((o = sp_get(c, o))) {
-		void *k = sp_object(st_r.db);
+		void *k = sp_document(st_r.db);
 		t( k != NULL );
 		int valuesize;
 		void *value = sp_getstring(o, "value", &valuesize);
@@ -399,15 +402,32 @@ void st_scene_phase_storage(stscene *s)
 			fflush(st_r.output);
 		}
 		t( sp_setstring(st_r.env, "db.test.compression", "lz4", 0) == 0 );
+		t( sp_setstring(st_r.env, "db.test.compression_branch", "none", 0) == 0 );
 		break;
 	case 3:
+		if (st_r.verbose) {
+			fprintf(st_r.output, ".storage_compression_branch");
+			fflush(st_r.output);
+		}
+		t( sp_setstring(st_r.env, "db.test.compression", "none", 0) == 0 );
+		t( sp_setstring(st_r.env, "db.test.compression_branch", "lz4", 0) == 0 );
+		break;
+	case 4:
+		if (st_r.verbose) {
+			fprintf(st_r.output, ".storage_compression_full");
+			fflush(st_r.output);
+		}
+		t( sp_setstring(st_r.env, "db.test.compression", "lz4", 0) == 0 );
+		t( sp_setstring(st_r.env, "db.test.compression_branch", "lz4", 0) == 0 );
+		break;
+	case 5:
 		if (st_r.verbose) {
 			fprintf(st_r.output, ".storage_mmap");
 			fflush(st_r.output);
 		}
 		t( sp_setint(st_r.env, "db.test.mmap", 1) == 0 );
 		break;
-	case 4:
+	case 6:
 		if (st_r.verbose) {
 			fprintf(st_r.output, ".storage_mmap_compression");
 			fflush(st_r.output);
@@ -415,14 +435,14 @@ void st_scene_phase_storage(stscene *s)
 		t( sp_setint(st_r.env, "db.test.mmap", 1) == 0 );
 		t( sp_setstring(st_r.env, "db.test.compression", "lz4", 0) == 0 );
 		break;
-	case 5:
+	case 7:
 		if (st_r.verbose) {
 			fprintf(st_r.output, ".storage_compression_key");
 			fflush(st_r.output);
 		}
 		t( sp_setint(st_r.env, "db.test.compression_key", 1) == 0 );
 		break;
-	case 6:
+	case 8:
 		if (st_r.verbose) {
 			fprintf(st_r.output, ".storage_mmap_compression_key");
 			fflush(st_r.output);
@@ -430,15 +450,16 @@ void st_scene_phase_storage(stscene *s)
 		t( sp_setint(st_r.env, "db.test.mmap", 1) == 0 );
 		t( sp_setint(st_r.env, "db.test.compression_key", 1) == 0 );
 		break;
-	case 7:
+	case 9:
 		if (st_r.verbose) {
 			fprintf(st_r.output, ".storage_compression_compression_key");
 			fflush(st_r.output);
 		}
 		t( sp_setstring(st_r.env, "db.test.compression", "lz4", 0) == 0 );
+		t( sp_setstring(st_r.env, "db.test.compression_branch", "lz4", 0) == 0 );
 		t( sp_setint(st_r.env, "db.test.compression_key", 1) == 0 );
 		break;
-	case 8:
+	case 10:
 		if (st_r.verbose) {
 			fprintf(st_r.output, ".storage_mmap_compression_compression_key");
 			fflush(st_r.output);
@@ -447,7 +468,7 @@ void st_scene_phase_storage(stscene *s)
 		t( sp_setstring(st_r.env, "db.test.compression", "lz4", 0) == 0 );
 		t( sp_setint(st_r.env, "db.test.compression_key", 1) == 0 );
 		break;
-	case 9:
+	case 11:
 		if (st_r.verbose) {
 			fprintf(st_r.output, ".storage_in_memory_mmap");
 			fflush(st_r.output);
@@ -455,7 +476,7 @@ void st_scene_phase_storage(stscene *s)
 		t( sp_setint(st_r.env, "db.test.in_memory", 1) == 0 );
 		t( sp_setint(st_r.env, "db.test.mmap", 1) == 0 );
 		break;
-	case 10:
+	case 12:
 		if (st_r.verbose) {
 			fprintf(st_r.output, ".storage_in_memory_compression");
 			fflush(st_r.output);
@@ -463,7 +484,7 @@ void st_scene_phase_storage(stscene *s)
 		t( sp_setint(st_r.env, "db.test.in_memory", 1) == 0 );
 		t( sp_setstring(st_r.env, "db.test.compression", "lz4", 0) == 0 );
 		break;
-	case 11:
+	case 13:
 		if (st_r.verbose) {
 			fprintf(st_r.output, ".storage_in_memory_compression_compression_key");
 			fflush(st_r.output);

@@ -20,7 +20,7 @@
 #include <libse.h>
 
 static inline int
-se_txwrite(setx *t, sev *o, uint8_t flags)
+se_txwrite(setx *t, sedocument *o, uint8_t flags)
 {
 	se *e = se_of(&t->o);
 	sedb *db = se_cast(o->o.parent, sedb*, SEDB);
@@ -46,7 +46,7 @@ se_txwrite(setx *t, sev *o, uint8_t flags)
 	if (flags == SVUPDATE && !sf_updatehas(&db->scheme.fmt_update))
 		flags = 0;
 
-	/* prepare object */
+	/* prepare document */
 	svv *v;
 	int rc = se_dbv(db, o, 0, &v);
 	if (ssunlikely(rc == -1))
@@ -76,24 +76,24 @@ error:
 static int
 se_txset(so *o, so *v)
 {
-	setx  *t = se_cast(o, setx*, SETX);
-	sev *key = se_cast(v, sev*, SEV);
+	setx *t = se_cast(o, setx*, SETX);
+	sedocument *key = se_cast(v, sedocument*, SEDOCUMENT);
 	return se_txwrite(t, key, 0);
 }
 
 static int
 se_txupdate(so *o, so *v)
 {
-	setx  *t = se_cast(o, setx*, SETX);
-	sev *key = se_cast(v, sev*, SEV);
+	setx *t = se_cast(o, setx*, SETX);
+	sedocument *key = se_cast(v, sedocument*, SEDOCUMENT);
 	return se_txwrite(t, key, SVUPDATE);
 }
 
 static int
 se_txdelete(so *o, so *v)
 {
-	setx  *t = se_cast(o, setx*, SETX);
-	sev *key = se_cast(v, sev*, SEV);
+	setx *t = se_cast(o, setx*, SETX);
+	sedocument *key = se_cast(v, sedocument*, SEDOCUMENT);
 	return se_txwrite(t, key, SVDELETE);
 }
 
@@ -101,7 +101,7 @@ static void*
 se_txget(so *o, so *v)
 {
 	setx  *t = se_cast(o, setx*, SETX);
-	sev *key = se_cast(v, sev*, SEV);
+	sedocument *key = se_cast(v, sedocument*, SEDOCUMENT);
 	se *e = se_of(&t->o);
 	sedb *db = se_cast(key->o.parent, sedb*, SEDB);
 	/* validate database */
@@ -152,10 +152,6 @@ se_txprepare(sx *x, sv *v, void *arg0, void *arg1)
 	sicache *cache = arg0;
 	sedb *db = arg1;
 	se *e = se_of(&db->o);
-	uint64_t lsn = sr_seq(e->r.seq, SR_LSN);
-	if (x->vlsn == lsn)
-		return 0;
-	/* prepare request */
 	sereq q;
 	se_reqinit(e, &q, SE_REQREAD, &db->o, &db->o);
 	sereqarg *arg = &q.arg;
@@ -180,6 +176,7 @@ se_txcommit(so *o)
 	if (ssunlikely(! se_statusactive_is(status)))
 		return -1;
 	int recover = (status == SE_RECOVER);
+
 	/* prepare transaction */
 	if (t->t.state == SXREADY || t->t.state == SXLOCK)
 	{
@@ -221,13 +218,13 @@ se_txcommit(so *o)
 	}
 	assert(t->t.state == SXCOMMIT);
 
-	/* prepare for wal and index write */
+	/* do wal write and backend commit */
 	sereq q;
 	se_reqinit(e, &q, SE_REQWRITE, &t->o, NULL);
 	sereqarg *arg = &q.arg;
 	arg->log = &t->t.log;
 	arg->lsn = 0;
-	if (recover || e->meta.commit_lsn)
+	if (recover || e->conf.commit_lsn)
 		arg->lsn = t->lsn;
 	if (ssunlikely(recover)) {
 		arg->recover = 1;
@@ -237,7 +234,6 @@ se_txcommit(so *o)
 		arg->vlsn_generate = 1;
 		arg->vlsn = 0;
 	}
-	/* log write and commit */
 	se_execute(&q);
 	se_txend(t, 0, 0);
 	return q.rc;
@@ -258,29 +254,36 @@ se_txset_int(so *o, const char *path, int64_t v)
 	return -1;
 }
 
+static int64_t
+se_txget_int(so *o, const char *path)
+{
+	setx *t = se_cast(o, setx*, SETX);
+	if (strcmp(path, "deadlock") == 0)
+		return sx_deadlock(&t->t);
+	return -1;
+}
+
 static soif setxif =
 {
 	.open         = NULL,
 	.destroy      = se_txrollback,
 	.error        = NULL,
-	.object       = NULL,
+	.document     = NULL,
 	.poll         = NULL,
 	.drop         = NULL,
-	.setobject    = NULL,
 	.setstring    = NULL,
 	.setint       = se_txset_int,
 	.getobject    = NULL,
 	.getstring    = NULL,
-	.getint       = NULL,
+	.getint       = se_txget_int,
 	.set          = se_txset,
 	.update       = se_txupdate,
 	.del          = se_txdelete,
 	.get          = se_txget,
-	.batch        = NULL,
 	.begin        = NULL,
 	.prepare      = NULL,
 	.commit       = se_txcommit,
-	.cursor       = NULL,
+	.cursor       = NULL
 };
 
 so *se_txnew(se *e)

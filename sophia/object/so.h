@@ -17,10 +17,9 @@ struct soif {
 	int      (*open)(so*);
 	int      (*destroy)(so*);
 	int      (*error)(so*);
-	void    *(*object)(so*);
+	void    *(*document)(so*);
 	void    *(*poll)(so*);
 	int      (*drop)(so*);
-	int      (*setobject)(so*, const char*, void*);
 	int      (*setstring)(so*, const char*, void*, int);
 	int      (*setint)(so*, const char*, int64_t);
 	void    *(*getobject)(so*, const char*);
@@ -30,7 +29,6 @@ struct soif {
 	int      (*update)(so*, so*);
 	int      (*del)(so*, so*);
 	void    *(*get)(so*, so*);
-	void    *(*batch)(so*);
 	void    *(*begin)(so*);
 	int      (*prepare)(so*);
 	int      (*commit)(so*);
@@ -80,21 +78,18 @@ so_cast_dynamic(void *ptr, sotype *type,
 #define so_open(o)      (o)->i->open(o)
 #define so_destroy(o)   (o)->i->destroy(o)
 #define so_error(o)     (o)->i->error(o)
-#define so_object(o)    (o)->i->object(o)
+#define so_document(o)  (o)->i->document(o)
 #define so_poll(o)      (o)->i->poll(o)
 #define so_drop(o)      (o)->i->drop(o)
 #define so_set(o, v)    (o)->i->set(o, v)
 #define so_update(o, v) (o)->i->update(o, v)
 #define so_delete(o, v) (o)->i->del(o, v)
 #define so_get(o, v)    (o)->i->get(o, v)
-#define so_batch(o)     (o)->i->batch(o)
 #define so_begin(o)     (o)->i->begin(o)
 #define so_prepare(o)   (o)->i->prepare(o)
 #define so_commit(o)    (o)->i->commit(o)
 #define so_cursor(o)    (o)->i->cursor(o)
 
-#define so_setobject(o, path, object) \
-	(o)->i->setobject(o, path, object)
 #define so_setstring(o, path, pointer, size) \
 	(o)->i->setstring(o, path, pointer, size)
 #define so_setint(o, path, v) \

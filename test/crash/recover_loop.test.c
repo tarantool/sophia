@@ -46,7 +46,7 @@ recover_loop(void)
 			srand(seedprev);
 			while (i < count) {
 				int k = rand();
-				void *o = sp_object(db);
+				void *o = sp_document(db);
 				t( sp_setstring(o, "key", &k, sizeof(k)) == 0 );
 				o = sp_get(db, o);
 				t( o != NULL );
@@ -61,7 +61,7 @@ recover_loop(void)
 		i = 0;
 		while (i < count) {
 			int k = rand();
-			void *o = sp_object(db);
+			void *o = sp_document(db);
 			t( o != NULL );
 			t( sp_setstring(o, "key", &k, sizeof(k)) == 0 );
 			t( sp_setstring(o, "value", &k, sizeof(k)) == 0 );
@@ -95,7 +95,7 @@ recover_loop(void)
 	int i = 0;
 	while (i < count) {
 		int k = rand();
-		void *o = sp_object(db);
+		void *o = sp_document(db);
 		t( sp_setstring(o, "key", &k, sizeof(k)) == 0 );
 		o = sp_get(db, o);
 		t( o != NULL );
@@ -108,7 +108,7 @@ recover_loop(void)
 
 stgroup *recover_loop_group(void)
 {
-	stgroup *group = st_group("loop");
+	stgroup *group = st_group("recover_loop");
 	st_groupadd(group, st_test("test0", recover_loop));
 	return group;
 }

@@ -16,7 +16,7 @@
 #include <libst.h>
 
 static void
-snapshot_cursor_test0(void)
+db_cursor_test0(void)
 {
 	void *env = sp_env();
 	t( env != NULL );
@@ -31,9 +31,8 @@ snapshot_cursor_test0(void)
 	t( db != NULL );
 	t( sp_open(env) == 0 );
 
-	t( sp_setstring(env, "snapshot", "test_snapshot", 0) == 0 );
-	void *snapshot = sp_getobject(env, "snapshot.test_snapshot");
-	t( snapshot != NULL );
+	void *snapcur = sp_getobject(env, "db");
+	t( snapcur != NULL );
 
 	t( sp_drop(db) == 0 );
 	t( sp_destroy(db) == 0 ); /* unref */
@@ -44,18 +43,14 @@ snapshot_cursor_test0(void)
 	t( db2 != NULL );
 	t( sp_open(db2) == 0 );
 
-	void *snapcur = sp_getobject(snapshot, "db-cursor");
 	void *o;
 	while ((o = sp_get(snapcur, NULL))) {
 		t( o == db );
 	}
 	sp_destroy(snapcur);
 
-	t( sp_setstring(env, "snapshot", "test_snapshot2", 0) == 0 );
-	void *snapshot2 = sp_getobject(env, "snapshot.test_snapshot2");
-	t( snapshot != NULL );
-
-	snapcur = sp_getobject(snapshot2, "db-cursor");
+	snapcur = sp_getobject(env, "db");
+	t( snapcur != NULL );
 	while ((o = sp_get(snapcur, NULL))) {
 		t( o == db2 );
 	}
@@ -64,9 +59,9 @@ snapshot_cursor_test0(void)
 	t( sp_destroy(env) == 0 );
 }
 
-stgroup *snapshot_cursor_group(void)
+stgroup *db_cursor_group(void)
 {
-	stgroup *group = st_group("snapshot_cursor");
-	st_groupadd(group, st_test("test0", snapshot_cursor_test0));
+	stgroup *group = st_group("db_cursor");
+	st_groupadd(group, st_test("test0", db_cursor_test0));
 	return group;
 }

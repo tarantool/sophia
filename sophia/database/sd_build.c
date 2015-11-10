@@ -23,6 +23,8 @@ void sd_buildinit(sdbuild *b)
 	ss_bufinit(&b->k);
 	b->n = 0;
 	b->compress = 0;
+	b->compress_dup = 0;
+	b->compress_if = NULL;
 	b->crc = 0;
 	b->vmax = 0;
 }
@@ -79,11 +81,15 @@ void sd_buildgc(sdbuild *b, sr *r, int wm)
 	b->vmax = 0;
 }
 
-int sd_buildbegin(sdbuild *b, sr *r, int crc, int compress, int compress_dup)
+int sd_buildbegin(sdbuild *b, sr *r, int crc,
+                  int compress_dup,
+                  int compress,
+                  ssfilterif *compress_if)
 {
 	b->crc = crc;
-	b->compress = compress;
 	b->compress_dup = compress_dup;
+	b->compress = compress;
+	b->compress_if = compress_if;
 	int rc;
 	if (compress_dup && b->tracker.size == 0) {
 		rc = ss_htinit(&b->tracker, r->a, 32768);
@@ -239,7 +245,7 @@ sd_buildadd_raw(sdbuild *b, sr *r, sv *v)
 
 int sd_buildadd(sdbuild *b, sr *r, sv *v, uint32_t flags)
 {
-	/* prepare object metadata */
+	/* prepare document metadata */
 	int rc = ss_bufensure(&b->m, r->a, sizeof(sdv));
 	if (ssunlikely(rc == -1))
 		return sr_oom(r->e);
@@ -248,7 +254,7 @@ int sd_buildadd(sdbuild *b, sr *r, sv *v, uint32_t flags)
 	sv->flags  = sv_flags(v) | flags;
 	sv->offset = ss_bufused(&b->v) - sd_buildref(b)->v;
 	ss_bufadvance(&b->m, sizeof(sdv));
-	/* copy object */
+	/* copy document */
 	switch (r->fmt_storage) {
 	case SF_SKEYVALUE:
 		rc = sd_buildadd_keyvalue(b, r, v);
@@ -281,6 +287,7 @@ int sd_buildadd(sdbuild *b, sr *r, sv *v, uint32_t flags)
 static inline int
 sd_buildcompress(sdbuild *b, sr *r)
 {
+	assert(b->compress_if != &ss_nonefilter);
 	/* reserve header */
 	int rc = ss_bufensure(&b->c, r->a, sizeof(sdpageheader));
 	if (ssunlikely(rc == -1))
@@ -289,7 +296,7 @@ sd_buildcompress(sdbuild *b, sr *r)
 	/* compression (including meta-data) */
 	sdbuildref *ref = sd_buildref(b);
 	ssfilter f;
-	rc = ss_filterinit(&f, (ssfilterif*)r->compression, r->a, SS_FINPUT);
+	rc = ss_filterinit(&f, b->compress_if, r->a, SS_FINPUT);
 	if (ssunlikely(rc == -1))
 		return -1;
 	rc = ss_filterstart(&f, &b->c);

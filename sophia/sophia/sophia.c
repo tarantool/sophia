@@ -49,16 +49,16 @@ SP_API void *sp_env(void)
 	return se_new();
 }
 
-SP_API void *sp_object(void *ptr)
+SP_API void *sp_document(void *ptr)
 {
 	so *o = sp_cast(ptr, __func__);
-	if (ssunlikely(o->i->object == NULL)) {
+	if (ssunlikely(o->i->document == NULL)) {
 		sp_unsupported(o, __func__);
 		return NULL;
 	}
 	so *e = o->env;
 	se_apilock(e);
-	void *h = o->i->object(o);
+	void *h = o->i->document(o);
 	se_apiunlock(e);
 	return h;
 }
@@ -136,20 +136,6 @@ SP_API void *sp_poll(void *ptr)
 	void *h = o->i->poll(o);
 	se_apiunlock(e);
 	return h;
-}
-
-SP_API int sp_setobject(void *ptr, const char *path, const void *object)
-{
-	so *o = sp_cast(ptr, __func__);
-	if (ssunlikely(o->i->setobject == NULL)) {
-		sp_unsupported(o, __func__);
-		return -1;
-	}
-	so *e = o->env;
-	se_apilock(e);
-	int rc = o->i->setobject(o, path, (void*)object);
-	se_apiunlock(e);
-	return rc;
 }
 
 SP_API int sp_setstring(void *ptr, const char *path, const void *pointer, int size)
@@ -288,20 +274,6 @@ SP_API void *sp_cursor(void *ptr)
 	so *e = o->env;
 	se_apilock(e);
 	void *h = o->i->cursor(o);
-	se_apiunlock(e);
-	return h;
-}
-
-SP_API void *sp_batch(void *ptr)
-{
-	so *o = sp_cast(ptr, __func__);
-	if (ssunlikely(o->i->batch == NULL)) {
-		sp_unsupported(o, __func__);
-		return NULL;
-	}
-	so *e = o->env;
-	se_apilock(e);
-	void *h = o->i->batch(o);
 	se_apiunlock(e);
 	return h;
 }

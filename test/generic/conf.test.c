@@ -16,7 +16,7 @@
 #include <libst.h>
 
 static void
-meta_version(void)
+conf_version(void)
 {
 	void *env = sp_env();
 	t( env != NULL );
@@ -28,7 +28,7 @@ meta_version(void)
 }
 
 static void
-meta_error_injection(void)
+conf_error_injection(void)
 {
 	void *env = sp_env();
 	t( env != NULL );
@@ -39,7 +39,7 @@ meta_error_injection(void)
 }
 
 static void
-meta_scheduler(void)
+conf_scheduler(void)
 {
 	void *env = sp_env();
 	t( env != NULL );
@@ -67,7 +67,7 @@ meta_scheduler(void)
 }
 
 static void
-meta_compaction(void)
+conf_compaction(void)
 {
 	void *env = sp_env();
 	t( env != NULL );
@@ -89,7 +89,7 @@ meta_compaction(void)
 }
 
 static void
-meta_validation(void)
+conf_validation(void)
 {
 	void *env = sp_env();
 	t( env != NULL );
@@ -122,7 +122,7 @@ meta_validation(void)
 	t( sp_setstring(env, "db.test.path", "path", 0) == -1 );
 	t( sp_setstring(env, "db.test.index.key", NULL, 0) == -1 );
 
-	void *o = sp_object(db);
+	void *o = sp_document(db);
 	t( o != NULL );
 
 	char key[65000];
@@ -136,7 +136,7 @@ meta_validation(void)
 }
 
 static void
-meta_empty_key(void)
+conf_empty_key(void)
 {
 	void *env = sp_env();
 	t( env != NULL );
@@ -148,11 +148,11 @@ meta_empty_key(void)
 	t( db != NULL );
 	t( sp_open(env) == 0 );
 
-	void *o = sp_object(db);
+	void *o = sp_document(db);
 	t( sp_setstring(o, "key", "", 0) == 0 );
 	t( sp_set(db, o) == 0 );
 
-	o = sp_object(db);
+	o = sp_document(db);
 	t( sp_setstring(o, "key", "", 0) == 0 );
 	o = sp_get(db, o);
 	t( o != NULL );
@@ -167,7 +167,7 @@ meta_empty_key(void)
 }
 
 static void
-meta_db(void)
+conf_db(void)
 {
 	void *env = sp_env();
 	t( env != NULL );
@@ -197,7 +197,7 @@ meta_db(void)
 }
 
 static void
-meta_cursor(void)
+conf_cursor(void)
 {
 	void *env = sp_env();
 	t( env != NULL );
@@ -208,7 +208,6 @@ meta_cursor(void)
 	t( sp_setstring(env, "db.test.index", "key_b", 0) == 0 );
 	t( sp_setint(env, "db.test.sync", 0) == 0 );
 	t( sp_open(env) == 0 );
-	t( sp_setstring(env, "snapshot", "test_snapshot0", 0) == 0 );
 
 	fprintf(st_r.output, "\n");
 
@@ -231,16 +230,16 @@ meta_cursor(void)
 	t( sp_destroy(env) == 0 );
 }
 
-stgroup *meta_group(void)
+stgroup *conf_group(void)
 {
-	stgroup *group = st_group("meta");
-	st_groupadd(group, st_test("version", meta_version));
-	st_groupadd(group, st_test("error_injection", meta_error_injection));
-	st_groupadd(group, st_test("scheduler", meta_scheduler));
-	st_groupadd(group, st_test("compaction", meta_compaction));
-	st_groupadd(group, st_test("validation", meta_validation));
-	st_groupadd(group, st_test("empty_key", meta_empty_key));
-	st_groupadd(group, st_test("db", meta_db));
-	st_groupadd(group, st_test("cursor", meta_cursor));
+	stgroup *group = st_group("conf");
+	st_groupadd(group, st_test("version", conf_version));
+	st_groupadd(group, st_test("error_injection", conf_error_injection));
+	st_groupadd(group, st_test("scheduler", conf_scheduler));
+	st_groupadd(group, st_test("compaction", conf_compaction));
+	st_groupadd(group, st_test("validation", conf_validation));
+	st_groupadd(group, st_test("empty_key", conf_empty_key));
+	st_groupadd(group, st_test("db", conf_db));
+	st_groupadd(group, st_test("cursor", conf_cursor));
 	return group;
 }

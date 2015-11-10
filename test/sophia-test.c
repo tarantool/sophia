@@ -27,7 +27,7 @@ extern stgroup *ss_zstdfilter_group(void);
 extern stgroup *ss_lz4filter_group(void);
 
 /* runtime */
-extern stgroup *sr_meta_group(void);
+extern stgroup *sr_conf_group(void);
 extern stgroup *sr_scheme_group(void);
 
 /* version */
@@ -44,7 +44,7 @@ extern stgroup *sd_read_group(void);
 extern stgroup *sd_pageiter_group(void);
 
 /* generic */
-extern stgroup *meta_group(void);
+extern stgroup *conf_group(void);
 extern stgroup *cache_group(void);
 extern stgroup *error_group(void);
 extern stgroup *method_group(void);
@@ -55,7 +55,7 @@ extern stgroup *drop_group(void);
 extern stgroup *ddl_group(void);
 extern stgroup *multipart_group(void);
 extern stgroup *tpr_group(void);
-extern stgroup *object_group(void);
+extern stgroup *document_group(void);
 extern stgroup *env_group(void);
 extern stgroup *deadlock_group(void);
 extern stgroup *scheme_group(void);
@@ -65,9 +65,7 @@ extern stgroup *compact_group(void);
 extern stgroup *backup_group(void);
 extern stgroup *checkpoint_group(void);
 extern stgroup *gc_group(void);
-extern stgroup *snapshot_group(void);
-extern stgroup *snapshot_cursor_group(void);
-extern stgroup *batch_group(void);
+extern stgroup *db_cursor_group(void);
 extern stgroup *prefix_group(void);
 extern stgroup *transaction_md_group(void);
 extern stgroup *cursor_md_group(void);
@@ -81,8 +79,10 @@ extern stgroup *transaction_group(void);
 extern stgroup *hermitage_group(void);
 extern stgroup *cursor_group(void);
 
-/* recover */
-extern stgroup *recover_crash_group(void);
+/* crash */
+extern stgroup *durability_group(void);
+extern stgroup *oom_group(void);
+extern stgroup *io_group(void);
 extern stgroup *recover_loop_group(void);
 
 /* multithread */
@@ -92,7 +92,6 @@ extern stgroup *multithread_be_multipass_group(void);
 
 /* memory */
 extern stgroup *leak_group(void);
-extern stgroup *oom_group(void);
 
 static void
 usage(char *path, int error) {
@@ -166,7 +165,7 @@ main(int argc, char *argv[])
 	st_suiteadd_scene(&st_r.suite, st_scene("phase_compaction", st_scene_phase_compaction, 5));
 	st_suiteadd_scene(&st_r.suite, st_scene("phase_scheme", st_scene_phase_scheme, 5));
 	st_suiteadd_scene(&st_r.suite, st_scene("phase_scheme_int", st_scene_phase_scheme_int, 3));
-	st_suiteadd_scene(&st_r.suite, st_scene("phase_storage", st_scene_phase_storage, 12));
+	st_suiteadd_scene(&st_r.suite, st_scene("phase_storage", st_scene_phase_storage, 14));
 	st_suiteadd_scene(&st_r.suite, st_scene("phase_format", st_scene_phase_format, 2));
 	st_suiteadd_scene(&st_r.suite, st_scene("phase_size", st_scene_phase_size, 3));
 	st_suiteadd_scene(&st_r.suite, st_scene("open", st_scene_open, 1));
@@ -192,7 +191,7 @@ main(int argc, char *argv[])
 	st_planadd(plan, ss_ht_group());
 	st_planadd(plan, ss_zstdfilter_group());
 	st_planadd(plan, ss_lz4filter_group());
-	st_planadd(plan, sr_meta_group());
+	st_planadd(plan, sr_conf_group());
 	st_planadd(plan, sr_scheme_group());
 	st_planadd(plan, sv_v_group());
 	st_planadd(plan, sv_index_group());
@@ -214,7 +213,7 @@ main(int argc, char *argv[])
 	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "test"));
 	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "gc"));
 	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "pass"));
-	st_planadd(plan, meta_group());
+	st_planadd(plan, conf_group());
 	st_planadd(plan, cache_group());
 	st_planadd(plan, error_group());
 	st_planadd(plan, method_group());
@@ -226,7 +225,7 @@ main(int argc, char *argv[])
 	st_planadd(plan, multipart_group());
 	st_planadd(plan, tpr_group());
 	st_planadd(plan, env_group());
-	st_planadd(plan, object_group());
+	st_planadd(plan, document_group());
 	st_planadd(plan, deadlock_group());
 	st_planadd(plan, scheme_group());
 	st_planadd(plan, rev_group());
@@ -235,9 +234,7 @@ main(int argc, char *argv[])
 	st_planadd(plan, backup_group());
 	st_planadd(plan, checkpoint_group());
 	st_planadd(plan, gc_group());
-	st_planadd(plan, snapshot_group());
-	st_planadd(plan, snapshot_cursor_group());
-	st_planadd(plan, batch_group());
+	st_planadd(plan, db_cursor_group());
 	st_planadd(plan, prefix_group());
 	st_planadd(plan, transaction_md_group());
 	st_planadd(plan, cursor_md_group());
@@ -360,26 +357,18 @@ main(int argc, char *argv[])
 	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "gc"));
 	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "pass"));
 	st_planadd(plan, leak_group());
+	st_suiteadd(&st_r.suite, plan);
+
+	plan = st_plan("crash");
+	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "rmrf"));
+	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "init"));
+	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "rt"));
+	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "test"));
+	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "gc"));
+	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "pass"));
+	st_planadd(plan, durability_group());
 	st_planadd(plan, oom_group());
-	st_suiteadd(&st_r.suite, plan);
-
-	plan = st_plan("recover_crash");
-	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "rmrf"));
-	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "init"));
-	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "rt"));
-	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "test"));
-	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "gc"));
-	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "pass"));
-	st_planadd(plan, recover_crash_group());
-	st_suiteadd(&st_r.suite, plan);
-
-	plan = st_plan("recover_loop");
-	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "rmrf"));
-	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "init"));
-	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "rt"));
-	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "test"));
-	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "gc"));
-	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "pass"));
+	st_planadd(plan, io_group());
 	st_planadd(plan, recover_loop_group());
 	st_suiteadd(&st_r.suite, plan);
 
