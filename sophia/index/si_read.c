@@ -14,17 +14,18 @@
 #include <libsd.h>
 #include <libsi.h>
 
-int si_queryopen(siquery *q, sicache *c, si *i, ssorder o,
-                 uint64_t vlsn,
-                 void *prefix, uint32_t prefixsize,
-                 void *key, uint32_t keysize)
+int si_readopen(siread *q, sitx *x, sicache *c, ssorder o,
+                uint64_t vlsn,
+                void *prefix, uint32_t prefixsize,
+                void *key, uint32_t keysize)
 {
 	q->order      = o;
 	q->key        = key;
 	q->keysize    = keysize;
 	q->vlsn       = vlsn;
-	q->index      = i;
-	q->r          = i->r;
+	q->x          = x;
+	q->index      = x->index;
+	q->r          = x->index->r;
 	q->cache      = c;
 	q->prefix     = prefix;
 	q->prefixsize = prefixsize;
@@ -36,35 +37,33 @@ int si_queryopen(siquery *q, sicache *c, si *i, ssorder o,
 	q->read_cache = 0;
 	memset(&q->result, 0, sizeof(q->result));
 	sv_mergeinit(&q->merge);
-	si_lock(q->index);
 	return 0;
 }
 
-void si_querycache_only(siquery *q)
+void si_readcache_only(siread *q)
 {
 	q->cache_only = 1;
 }
 
-void si_queryhas(siquery *q)
+void si_readhas(siread *q)
 {
 	q->has = 1;
 }
 
-void si_queryupdate(siquery *q, sv *v, int eq)
+void si_readupdate(siread *q, sv *v, int eq)
 {
 	q->update_v  = v;
 	q->update_eq = eq;
 }
 
-int si_queryclose(siquery *q)
+int si_readclose(siread *q)
 {
-	si_unlock(q->index);
 	sv_mergefree(&q->merge, q->r->a);
 	return 0;
 }
 
 static inline int
-si_querydup(siquery *q, sv *result)
+si_readdup(siread *q, sv *result)
 {
 	svv *v = sv_vdup(q->r, result);
 	if (ssunlikely(v == NULL))
@@ -73,8 +72,22 @@ si_querydup(siquery *q, sv *result)
 	return 1;
 }
 
+static inline void
+si_readstat(siread *q, int cache, sinode *n, uint32_t reads)
+{
+	si *i = q->index;
+	if (cache) {
+		i->read_cache += reads;
+		q->read_cache += reads;
+	} else {
+		i->read_disk += reads;
+		q->read_disk += reads;
+	}
+	n->temperature_reads += reads;
+}
+
 static inline int
-si_qgetresult(siquery *q, sv *v, int compare)
+si_getresult(siread *q, sv *v, int compare)
 {
 	int rc;
 	if (compare) {
@@ -95,17 +108,17 @@ si_qgetresult(siquery *q, sv *v, int compare)
 		return sv_lsn(v) > q->vlsn;
 	if (ssunlikely(sv_is(v, SVDELETE)))
 		return 2;
-	rc = si_querydup(q, v);
+	rc = si_readdup(q, v);
 	if (ssunlikely(rc == -1))
 		return -1;
 	return 1;
 }
 
 static inline int
-si_qgetindex(siquery *q, sinode *node)
+si_getindex(siread *q, sinode *n)
 {
 	svindex *second;
-	svindex *first = si_nodeindex_priority(node, &second);
+	svindex *first = si_nodeindex_priority(n, &second);
 	ssiter i;
 	ss_iterinit(sv_indexiter, &i);
 	int rc;
@@ -124,6 +137,7 @@ si_qgetindex(siquery *q, sinode *node)
 		return 0;
 	}
 result:;
+	si_readstat(q, 1, n, 1);
 	sv *v = ss_iterof(sv_indexiter, &i);
 	assert(v != NULL);
 	svv *visible = v->v;
@@ -134,11 +148,11 @@ result:;
 	}
 	sv vret;
 	sv_init(&vret, &sv_vif, visible, NULL);
-	return si_qgetresult(q, &vret, 0);
+	return si_getresult(q, &vret, 0);
 }
 
 static inline int
-si_qgetbranch(siquery *q, sinode *n, sibranch *b)
+si_getbranch(siread *q, sinode *n, sibranch *b)
 {
 	sicachebranch *c = si_cachefollow(q->cache);
 	assert(c->branch == b);
@@ -175,8 +189,7 @@ si_qgetbranch(siquery *q, sinode *n, sibranch *b)
 	ss_iterinit(sd_read, &c->i);
 	int rc = ss_iteropen(sd_read, &c->i, &arg, q->key, q->keysize);
 	int reads = sd_read_stat(&c->i);
-	q->index->read_disk += reads;
-	q->read_disk += reads;
+	si_readstat(q, 0, n, reads);
 	if (ssunlikely(rc <= 0))
 		return rc;
 	/* prepare sources */
@@ -194,11 +207,11 @@ si_qgetbranch(siquery *q, sinode *n, sibranch *b)
 	sv *v = ss_iterof(sv_readiter, &j);
 	if (ssunlikely(v == NULL))
 		return 0;
-	return si_qgetresult(q, v, 1);
+	return si_getresult(q, v, 1);
 }
 
 static inline int
-si_qget(siquery *q)
+si_get(siread *q)
 {
 	ssiter i;
 	ss_iterinit(si_iter, &i);
@@ -206,9 +219,10 @@ si_qget(siquery *q)
 	sinode *node;
 	node = ss_iterof(si_iter, &i);
 	assert(node != NULL);
+	si_txtrack(q->x, node);
 	/* search in memory */
 	int rc;
-	rc = si_qgetindex(q, node);
+	rc = si_getindex(q, node);
 	if (rc != 0)
 		return rc;
 	if (q->cache_only)
@@ -225,7 +239,7 @@ si_qget(siquery *q)
 	/* search on disk */
 	sibranch *b = node->branch;
 	while (b) {
-		rc = si_qgetbranch(q, node, b);
+		rc = si_getbranch(q, node, b);
 		if (rc != 0)
 			return rc;
 		b = b->next;
@@ -234,15 +248,14 @@ si_qget(siquery *q)
 }
 
 static inline int
-si_qrangebranch(siquery *q, sinode *n, sibranch *b, svmerge *m)
+si_rangebranch(siread *q, sinode *n, sibranch *b, svmerge *m)
 {
 	sicachebranch *c = si_cachefollow(q->cache);
 	assert(c->branch == b);
 	/* iterate cache */
 	if (ss_iterhas(sd_read, &c->i)) {
 		svmergesrc *s = sv_mergeadd(m, &c->i);
-		q->index->read_cache++;
-		q->read_cache++;
+		si_readstat(q, 1, n, 1);
 		s->ptr = c;
 		return 1;
 	}
@@ -286,8 +299,7 @@ si_qrangebranch(siquery *q, sinode *n, sibranch *b, svmerge *m)
 	ss_iterinit(sd_read, &c->i);
 	int rc = ss_iteropen(sd_read, &c->i, &arg, q->key, q->keysize);
 	int reads = sd_read_stat(&c->i);
-	q->index->read_disk += reads;
-	q->read_disk += reads;
+	si_readstat(q, 0, n, reads);
 	if (ssunlikely(rc == -1))
 		return -1;
 	if (ssunlikely(! ss_iterhas(sd_read, &c->i)))
@@ -298,7 +310,7 @@ si_qrangebranch(siquery *q, sinode *n, sibranch *b, svmerge *m)
 }
 
 static inline int
-si_qrange(siquery *q)
+si_range(siread *q)
 {
 	assert(q->has == 0);
 
@@ -310,6 +322,7 @@ next_node:
 	node = ss_iterof(si_iter, &i);
 	if (ssunlikely(node == NULL))
 		return 0;
+	si_txtrack(q->x, node);
 
 	/* prepare sources */
 	svmerge *m = &q->merge;
@@ -356,7 +369,7 @@ next_node:
 	}
 	sibranch *b = node->branch;
 	while (b) {
-		rc = si_qrangebranch(q, node, b, m);
+		rc = si_rangebranch(q, node, b, m);
 		if (ssunlikely(rc == -1 || rc == 2))
 			return rc;
 		b = b->next;
@@ -390,7 +403,7 @@ next_node:
 		                      sv_size(v));
 	}
 	if (sslikely(rc == 1)) {
-		if (ssunlikely(si_querydup(q, v) == -1))
+		if (ssunlikely(si_readdup(q, v) == -1))
 			return -1;
 	}
 
@@ -399,16 +412,16 @@ next_node:
 	return rc;
 }
 
-int si_query(siquery *q)
+int si_read(siread *q)
 {
 	switch (q->order) {
 	case SS_EQ:
-		return si_qget(q);
+		return si_get(q);
 	case SS_LT:
 	case SS_LTE:
 	case SS_GT:
 	case SS_GTE:
-		return si_qrange(q);
+		return si_range(q);
 	default:
 		break;
 	}
@@ -416,7 +429,7 @@ int si_query(siquery *q)
 }
 
 static int
-si_querycommited_branch(sr *r, sibranch *b, sv *v)
+si_readcommited_branch(sr *r, sibranch *b, sv *v)
 {
 	ssiter i;
 	ss_iterinit(sd_indexiter, &i);
@@ -428,7 +441,7 @@ si_querycommited_branch(sr *r, sibranch *b, sv *v)
 	return page->lsnmax >= sv_lsn(v);
 }
 
-int si_querycommited(si *index, sr *r, sv *v)
+int si_readcommited(si *index, sr *r, sv *v)
 {
 	ssiter i;
 	ss_iterinit(si_iter, &i);
@@ -440,11 +453,11 @@ int si_querycommited(si *index, sr *r, sv *v)
 	sibranch *b = node->branch;
 	int rc;
 	while (b) {
-		rc = si_querycommited_branch(r, b, v);
+		rc = si_readcommited_branch(r, b, v);
 		if (rc)
 			return 1;
 		b = b->next;
 	}
-	rc = si_querycommited_branch(r, &node->self, v);
+	rc = si_readcommited_branch(r, &node->self, v);
 	return rc;
 }

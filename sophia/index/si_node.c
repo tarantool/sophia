@@ -30,6 +30,8 @@ sinode *si_nodenew(sr *r)
 	si_branchinit(&n->self);
 	n->branch = NULL;
 	n->branch_count = 0;
+	n->temperature = 0;
+	n->temperature_reads = 0;
 	ss_fileinit(&n->file, r->vfs);
 	ss_mmapinit(&n->map);
 	ss_mmapinit(&n->map_swap);
@@ -38,6 +40,7 @@ sinode *si_nodenew(sr *r)
 	ss_rbinitnode(&n->node);
 	ss_rqinitnode(&n->nodecompact);
 	ss_rqinitnode(&n->nodebranch);
+	ss_rqinitnode(&n->nodetemp);
 	ss_listinit(&n->commit);
 	return n;
 }
@@ -197,6 +200,7 @@ int si_nodefree(sinode *n, sr *r, int gc)
 	int rcret = 0;
 	int rc;
 	if (gc && ss_pathis_set(&n->file.path)) {
+		ss_fileadvise(&n->file, 0, 0, n->file.size);
 		rc = ss_vfsunlink(r->vfs, ss_pathof(&n->file.path));
 		if (ssunlikely(rc == -1)) {
 			sr_malfunction(r->e, "db file '%s' unlink error: %s",

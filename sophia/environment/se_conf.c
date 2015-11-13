@@ -138,6 +138,7 @@ se_confcompaction(se *e, seconfrt *rt ssunused, srconf **pc)
 		p = NULL;
 		sr_c(&p, pc, se_confv_offline, "mode", SS_U32, &z->mode);
 		sr_c(&p, pc, se_confv_offline, "compact_wm", SS_U32, &z->compact_wm);
+		sr_c(&p, pc, se_confv_offline, "compact_mode", SS_U32, &z->compact_mode);
 		sr_c(&p, pc, se_confv_offline, "branch_prio", SS_U32, &z->branch_prio);
 		sr_c(&p, pc, se_confv_offline, "branch_wm", SS_U32, &z->branch_wm);
 		sr_c(&p, pc, se_confv_offline, "branch_age", SS_U32, &z->branch_age);
@@ -594,6 +595,10 @@ se_confdb(se *e, seconfrt *rt ssunused, srconf **pc)
 		sr_C(&p, pc, se_confv, "count_dup", SS_U64, &o->rtp.count_dup, SR_RO, NULL);
 		sr_C(&p, pc, se_confv, "read_disk", SS_U64, &o->rtp.read_disk, SR_RO, NULL);
 		sr_C(&p, pc, se_confv, "read_cache", SS_U64, &o->rtp.read_cache, SR_RO, NULL);
+		sr_C(&p, pc, se_confv, "temperature_avg", SS_U32, &o->rtp.temperature_avg, SR_RO, NULL);
+		sr_C(&p, pc, se_confv, "temperature_min", SS_U32, &o->rtp.temperature_min, SR_RO, NULL);
+		sr_C(&p, pc, se_confv, "temperature_max", SS_U32, &o->rtp.temperature_max, SR_RO, NULL);
+		sr_C(&p, pc, se_confv, "temperature_histogram", SS_STRINGPTR, &o->rtp.histogram_temperature_ptr, SR_RO, NULL);
 		sr_C(&p, pc, se_confv, "node_count", SS_U32, &o->rtp.total_node_count, SR_RO, NULL);
 		sr_C(&p, pc, se_confv, "branch_count", SS_U32, &o->rtp.total_branch_count, SR_RO, NULL);
 		sr_C(&p, pc, se_confv, "branch_avg", SS_U32, &o->rtp.total_branch_avg, SR_RO, NULL);
@@ -823,7 +828,7 @@ int se_confserialize(seconf *c, ssbuf *buf)
 	se *e = (se*)c->env;
 	seconfrt rt;
 	se_confrt(e, &rt);
-	srconf conf[1024];
+	srconf *conf = c->conf;
 	srconf *root;
 	root = se_confprepare(e, &rt, conf, 1);
 	srconfstmt stmt = {
@@ -846,7 +851,7 @@ se_confquery(se *e, int op, const char *path,
 {
 	seconfrt rt;
 	se_confrt(e, &rt);
-	srconf conf[1024];
+	srconf *conf = e->conf.conf;
 	srconf *root;
 	root = se_confprepare(e, &rt, conf, 0);
 	srconfstmt stmt = {
@@ -916,9 +921,12 @@ int64_t se_confget_int(so *o, const char *path)
 	return result;
 }
 
-void se_confinit(seconf *c, so *e)
+int se_confinit(seconf *c, so *e)
 {
-	se *o = (se*)e;
+	se *o = se_of(e);
+	c->conf = ss_malloc(&o->a, sizeof(srconf) * 1024);
+	if (ssunlikely(c->conf == NULL))
+		return -1;
 	sr_schemeinit(&c->scheme);
 	srkey *part = sr_schemeadd(&c->scheme, &o->a);
 	sr_keysetname(part, &o->a, "key");
@@ -947,6 +955,7 @@ void se_confinit(seconf *c, so *e)
 		.enable        = 1,
 		.mode          = 3, /* branch + compact */
 		.compact_wm    = 2,
+		.compact_mode  = 0, /* branch priority */
 		.branch_prio   = 1,
 		.branch_wm     = 10 * 1024 * 1024,
 		.branch_age    = 40,
@@ -963,6 +972,7 @@ void se_confinit(seconf *c, so *e)
 		.enable        = 1,
 		.mode          = 2, /* checkpoint */
 		.compact_wm    = 4,
+		.compact_mode  = 0,
 		.branch_prio   = 0,
 		.branch_wm     = 0,
 		.branch_age    = 0,
@@ -978,11 +988,16 @@ void se_confinit(seconf *c, so *e)
 	sr_zonemap_set(&o->conf.zones,  0, &def);
 	sr_zonemap_set(&o->conf.zones, 80, &redzone);
 	c->backup_path = NULL;
+	return 0;
 }
 
 void se_conffree(seconf *c)
 {
 	se *e = (se*)c->env;
+	if (c->conf) {
+		ss_free(&e->a, c->conf);
+		c->conf = NULL;
+	}
 	if (c->path) {
 		ss_free(&e->a, c->path);
 		c->path = NULL;

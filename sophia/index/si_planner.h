@@ -16,6 +16,7 @@ struct siplanner {
 	void *i;
 	ssrq branch;
 	ssrq compact;
+	ssrq temp;
 };
 
 /* plan */
@@ -24,17 +25,19 @@ struct siplanner {
 #define SI_COMPACT       4
 #define SI_CHECKPOINT    8
 #define SI_GC            16
-#define SI_BACKUP        32
-#define SI_BACKUPEND     64
-#define SI_SHUTDOWN      128
-#define SI_DROP          256
+#define SI_TEMP          32
+#define SI_BACKUP        64
+#define SI_BACKUPEND     128
+#define SI_SHUTDOWN      256
+#define SI_DROP          512
 
 /* explain */
 #define SI_ENONE         0
 #define SI_ERETRY        1
 #define SI_EINDEX_SIZE   2
-#define SI_EINDEX_AGE    4
-#define SI_EBRANCH_COUNT 3
+#define SI_EINDEX_AGE    3
+#define SI_EBRANCH_COUNT 4
+#define SI_ETEMP         5
 
 struct siplan {
 	int explain;
@@ -49,7 +52,7 @@ struct siplan {
 	 *   c:
 	 * compact:
 	 *   a: branches
-	 *   b:
+	 *   b: mode
 	 *   c:
 	 * checkpoint:
 	 *   a: lsn
@@ -59,6 +62,7 @@ struct siplan {
 	 *   a: lsn
 	 *   b: percent
 	 *   c:
+	 * temperature:
 	 * backup:
 	 *   a: bsn
 	 *   b:
