@@ -381,7 +381,7 @@ se_confmetric(se *e ssunused, seconfrt *rt, srconf **pc)
 	sr_C(&p, pc, se_confv, "bsn",  SS_U32, &rt->seq.bsn, SR_RO, NULL);
 	sr_C(&p, pc, se_confv, "lsn",  SS_U64, &rt->seq.lsn, SR_RO, NULL);
 	sr_C(&p, pc, se_confv, "lfsn", SS_U32, &rt->seq.lfsn, SR_RO, NULL);
-	sr_C(&p, pc, se_confv, "tsn",  SS_U32, &rt->seq.tsn, SR_RO, NULL);
+	sr_C(&p, pc, se_confv, "tsn",  SS_U64, &rt->seq.tsn, SR_RO, NULL);
 	return sr_C(NULL, pc, NULL, "metric", SS_UNDEF, metric, SR_NS, NULL);
 }
 
@@ -492,6 +492,15 @@ se_confdb_branch(srconf *c, srconfstmt *s)
 
 static inline int
 se_confdb_compact(srconf *c, srconfstmt *s)
+{
+	if (s->op != SR_WRITE)
+		return se_confv(c, s);
+	sedb *db = c->value;
+	return se_scheduler_compact(db);
+}
+
+static inline int
+se_confdb_compact_index(srconf *c, srconfstmt *s)
 {
 	if (s->op != SR_WRITE)
 		return se_confv(c, s);
@@ -620,18 +629,19 @@ se_confdb(se *e, seconfrt *rt ssunused, srconf **pc)
 		sr_C(&p, pc, se_confv, "name", SS_STRINGPTR, &o->scheme.name, SR_RO, NULL);
 		sr_C(&p, pc, se_confv_dboffline, "id", SS_U32, &o->scheme.id, 0, o);
 		sr_C(&p, pc, se_confdb_status,   "status", SS_STRING, o, SR_RO, NULL);
+		sr_C(&p, pc, se_confv_dboffline, "storage", SS_STRINGPTR, &o->scheme.storage_sz, 0, o);
 		sr_C(&p, pc, se_confv_dboffline, "format", SS_STRINGPTR, &o->scheme.fmt_sz, 0, o);
 		sr_C(&p, pc, se_confv_dboffline, "path", SS_STRINGPTR, &o->scheme.path, 0, o);
 		sr_C(&p, pc, se_confv_dboffline, "path_fail_on_exists", SS_U32, &o->scheme.path_fail_on_exists, 0, o);
 		sr_C(&p, pc, se_confv_dboffline, "path_fail_on_drop", SS_U32, &o->scheme.path_fail_on_drop, 0, o);
 		sr_C(&p, pc, se_confv_dboffline, "sync", SS_U32, &o->scheme.sync, 0, o);
 		sr_C(&p, pc, se_confv_dboffline, "mmap", SS_U32, &o->scheme.mmap, 0, o);
-		sr_C(&p, pc, se_confv_dboffline, "in_memory", SS_U32, &o->scheme.in_memory, 0, o);
 		sr_C(&p, pc, se_confv_dboffline, "compression_key", SS_U32, &o->scheme.compression_key, 0, o);
 		sr_C(&p, pc, se_confv_dboffline, "compression_branch", SS_STRINGPTR, &o->scheme.compression_branch_sz, 0, o);
 		sr_C(&p, pc, se_confv_dboffline, "compression", SS_STRINGPTR, &o->scheme.compression_sz, 0, o);
 		sr_c(&p, pc, se_confdb_branch, "branch", SS_FUNCTION, o);
 		sr_c(&p, pc, se_confdb_compact, "compact", SS_FUNCTION, o);
+		sr_c(&p, pc, se_confdb_compact_index, "compact_index", SS_FUNCTION, o);
 		sr_C(&p, pc, se_confdb_index, "index", SS_UNDEF, index, SR_NS, o);
 		sr_C(&prev, pc, se_confdb_get, o->scheme.name, SS_STRING, database, SR_NS, o);
 		if (db == NULL)

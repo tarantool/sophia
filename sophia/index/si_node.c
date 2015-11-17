@@ -27,6 +27,7 @@ sinode *si_nodenew(sr *r)
 	n->flags = 0;
 	n->update_time = 0;
 	n->used = 0;
+	n->in_memory = 0;
 	si_branchinit(&n->self);
 	n->branch = NULL;
 	n->branch_count = 0;
@@ -45,8 +46,19 @@ sinode *si_nodenew(sr *r)
 	return n;
 }
 
+ss_rbtruncate(si_nodegc_indexgc,
+              si_gcv((sr*)arg, sscast(n, svv, node)))
+
+int si_nodegc_index(sr *r, svindex *i)
+{
+	if (i->i.root)
+		si_nodegc_indexgc(i->i.root, r);
+	sv_indexinit(i);
+	return 0;
+}
+
 static inline int
-si_nodeclose(sinode *n, sr *r)
+si_nodeclose(sinode *n, sr *r, int gc)
 {
 	int rcret = 0;
 	int rc = ss_munmap(&n->map);
@@ -63,8 +75,13 @@ si_nodeclose(sinode *n, sr *r)
 		               strerror(errno));
 		rcret = -1;
 	}
-	sv_indexfree(&n->i0, r);
-	sv_indexfree(&n->i1, r);
+	if (gc) {
+		si_nodegc_index(r, &n->i0);
+		si_nodegc_index(r, &n->i1);
+	} else {
+		sv_indexfree(&n->i0, r);
+		sv_indexfree(&n->i1, r);
+	}
 	return rcret;
 }
 
@@ -120,6 +137,8 @@ si_noderecover(sinode *n, sr *r, int in_memory)
 	if (ssunlikely(rc == -1))
 		goto error;
 	ss_iteratorclose(&i);
+
+	n->in_memory = in_memory;
 	return 0;
 error:
 	ss_iteratorclose(&i);
@@ -142,7 +161,10 @@ int si_nodeopen(sinode *n, sr *r, sischeme *scheme, sspath *path)
 		               strerror(errno));
 		goto error;
 	}
-	rc = si_noderecover(n, r, scheme->in_memory);
+	int in_memory = 0;
+	if (scheme->storage == SI_SIN_MEMORY)
+		in_memory = 1;
+	rc = si_noderecover(n, r, in_memory);
 	if (ssunlikely(rc == -1))
 		goto error;
 	if (scheme->mmap) {
@@ -152,7 +174,7 @@ int si_nodeopen(sinode *n, sr *r, sischeme *scheme, sspath *path)
 	}
 	return 0;
 error:
-	si_nodeclose(n, r);
+	si_nodeclose(n, r, 0);
 	return -1;
 }
 
@@ -210,22 +232,11 @@ int si_nodefree(sinode *n, sr *r, int gc)
 		}
 	}
 	si_nodefree_branches(n, r);
-	rc = si_nodeclose(n, r);
+	rc = si_nodeclose(n, r, gc);
 	if (ssunlikely(rc == -1))
 		rcret = -1;
 	ss_free(r->a, n);
 	return rcret;
-}
-
-ss_rbtruncate(si_nodegc_indexgc,
-              si_gcv((sr*)arg, sscast(n, svv, node)))
-
-int si_nodegc_index(sr *r, svindex *i)
-{
-	if (i->i.root)
-		si_nodegc_indexgc(i->i.root, r);
-	sv_indexinit(i);
-	return 0;
 }
 
 int si_noderead(sinode *n, sr *r, ssbuf *dest)
