@@ -14,7 +14,7 @@
 #include <libsl.h>
 
 static inline sl*
-sl_alloc(slpool *p, uint32_t id)
+sl_alloc(slpool *p, uint64_t id)
 {
 	sl *l = ss_malloc(p->r->a, sizeof(*l));
 	if (ssunlikely(l == NULL)) {
@@ -47,13 +47,13 @@ sl_close(slpool *p, sl *l)
 }
 
 static inline sl*
-sl_open(slpool *p, uint32_t id)
+sl_open(slpool *p, uint64_t id)
 {
 	sl *l = sl_alloc(p, id);
 	if (ssunlikely(l == NULL))
 		return NULL;
 	sspath path;
-	ss_pathA(&path, p->conf->path, id, ".log");
+	ss_path(&path, p->conf->path, id, ".log");
 	int rc = ss_fileopen(&l->file, path.path);
 	if (ssunlikely(rc == -1)) {
 		sr_malfunction(p->r->e, "log file '%s' open error: %s",
@@ -68,13 +68,13 @@ error:
 }
 
 static inline sl*
-sl_new(slpool *p, uint32_t id)
+sl_new(slpool *p, uint64_t id)
 {
 	sl *l = sl_alloc(p, id);
 	if (ssunlikely(l == NULL))
 		return NULL;
 	sspath path;
-	ss_pathA(&path, p->conf->path, id, ".log");
+	ss_path(&path, p->conf->path, id, ".log");
 	int rc = ss_filenew(&l->file, path.path);
 	if (ssunlikely(rc == -1)) {
 		sr_malfunction(p->r->e, "log file '%s' create error: %s",
@@ -180,7 +180,7 @@ int sl_poolrotate(slpool *p)
 {
 	if (ssunlikely(! p->conf->enable))
 		return 0;
-	uint32_t lfsn = sr_seq(p->r->seq, SR_LFSNNEXT);
+	uint64_t lfsn = sr_seq(p->r->seq, SR_LFSNNEXT);
 	sl *l = sl_new(p, lfsn);
 	if (ssunlikely(l == NULL))
 		return -1;
@@ -325,7 +325,7 @@ int sl_poolcopy(slpool *p, char *dest, ssbuf *buf)
 		sl *l = sscast(i, sl, linkcopy);
 		ss_listinit(&l->linkcopy);
 		sspath path;
-		ss_pathA(&path, dest, l->id, ".log");
+		ss_path(&path, dest, l->id, ".log");
 		ssfile file;
 		ss_fileinit(&file, p->r->vfs);
 		int rc = ss_filenew(&file, path.path);

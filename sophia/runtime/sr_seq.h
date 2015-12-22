@@ -14,6 +14,10 @@ typedef enum {
 	SR_DSNNEXT,
 	SR_NSN,
 	SR_NSNNEXT,
+	SR_ASN,
+	SR_ASNNEXT,
+	SR_SSN,
+	SR_SSNNEXT,
 	SR_BSN,
 	SR_BSNNEXT,
 	SR_LSN,
@@ -28,13 +32,15 @@ typedef enum {
 
 typedef struct {
 	ssspinlock lock;
-	uint32_t dsn;
-	uint32_t nsn;
-	uint32_t bsn;
 	uint64_t lsn;
-	uint32_t lfsn;
 	uint64_t tsn;
+	uint64_t nsn;
+	uint64_t ssn;
+	uint64_t asn;
 	uint64_t rsn;
+	uint64_t lfsn;
+	uint32_t dsn;
+	uint32_t bsn;
 } srseq;
 
 static inline void
@@ -63,33 +69,41 @@ sr_seqdo(srseq *n, srseqop op)
 {
 	uint64_t v = 0;
 	switch (op) {
-	case SR_LSN:      v = n->lsn;
+	case SR_LSN:       v = n->lsn;
 		break;
-	case SR_LSNNEXT:  v = ++n->lsn;
+	case SR_LSNNEXT:   v = ++n->lsn;
 		break;
-	case SR_TSN:      v = n->tsn;
+	case SR_TSN:       v = n->tsn;
 		break;
-	case SR_TSNNEXT:  v = ++n->tsn;
+	case SR_TSNNEXT:   v = ++n->tsn;
 		break;
-	case SR_RSN:      v = n->rsn;
+	case SR_RSN:       v = n->rsn;
 		break;
-	case SR_RSNNEXT:  v = ++n->rsn;
+	case SR_RSNNEXT:   v = ++n->rsn;
 		break;
-	case SR_NSN:      v = n->nsn;
+	case SR_NSN:       v = n->nsn;
 		break;
-	case SR_NSNNEXT:  v = ++n->nsn;
+	case SR_NSNNEXT:   v = ++n->nsn;
 		break;
-	case SR_LFSN:     v = n->lfsn;
+	case SR_LFSN:      v = n->lfsn;
 		break;
-	case SR_LFSNNEXT: v = ++n->lfsn;
+	case SR_LFSNNEXT:  v = ++n->lfsn;
 		break;
-	case SR_DSN:      v = n->dsn;
+	case SR_SSN:       v = n->ssn;
 		break;
-	case SR_DSNNEXT:  v = ++n->dsn;
+	case SR_SSNNEXT:   v = ++n->ssn;
 		break;
-	case SR_BSN:      v = n->bsn;
+	case SR_ASN:       v = n->asn;
 		break;
-	case SR_BSNNEXT:  v = ++n->bsn;
+	case SR_ASNNEXT:   v = ++n->asn;
+		break;
+	case SR_BSN:       v = n->bsn;
+		break;
+	case SR_BSNNEXT:   v = ++n->bsn;
+		break;
+	case SR_DSN:       v = n->dsn;
+		break;
+	case SR_DSNNEXT:   v = ++n->dsn;
 		break;
 	}
 	return v;

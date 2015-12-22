@@ -88,6 +88,7 @@ se_confmemory(se *e, seconfrt *rt, srconf **pc)
 	srconf *p = NULL;
 	sr_c(&p, pc, se_confv_offline, "limit", SS_U64, &e->conf.memory_limit);
 	sr_C(&p, pc, se_confv, "used", SS_U64, &rt->memory_used, SR_RO, NULL);
+	sr_c(&p, pc, se_confv_offline, "anticache", SS_U64, &e->conf.anticache);
 	sr_C(&p, pc, se_confv, "pager_pools", SS_U32, &rt->pager_pools, SR_RO, NULL);
 	sr_C(&p, pc, se_confv, "pager_pool_size", SS_U32, &rt->pager_pool_size, SR_RO, NULL);
 	return sr_C(NULL, pc, NULL, "memory", SS_UNDEF, memory, SR_NS, NULL);
@@ -106,7 +107,7 @@ se_confcompaction_set(srconf *c ssunused, srconfstmt *s)
 		return -1;
 	}
 	/* validate argument */
-	uint32_t percent = *(uint32_t*)s->value;
+	uint32_t percent = sscastu32(s->value);
 	if (percent > 100) {
 		sr_error(&e->error, "%s", "bad argument");
 		return -1;
@@ -121,14 +122,9 @@ se_confcompaction_set(srconf *c ssunused, srconfstmt *s)
 static inline srconf*
 se_confcompaction(se *e, seconfrt *rt ssunused, srconf **pc)
 {
-	srconf *compaction = *pc;
-	srconf *prev;
-	srconf *p = NULL;
-	sr_c(&p, pc, se_confv_offline, "node_preload", SS_U32, &e->conf.node_preload);
-	sr_c(&p, pc, se_confv_offline, "node_size", SS_U32, &e->conf.node_size);
-	sr_c(&p, pc, se_confv_offline, "page_size", SS_U32, &e->conf.page_size);
-	sr_c(&p, pc, se_confv_offline, "page_checksum", SS_U32, &e->conf.page_checksum);
-	prev = p;
+	srconf *compaction = NULL;
+	srconf *prev = NULL;
+	srconf *p;
 	int i = 0;
 	for (; i < 11; i++) {
 		srzone *z = &e->conf.zones.zones[i];
@@ -144,13 +140,19 @@ se_confcompaction(se *e, seconfrt *rt ssunused, srconf **pc)
 		sr_c(&p, pc, se_confv_offline, "branch_age", SS_U32, &z->branch_age);
 		sr_c(&p, pc, se_confv_offline, "branch_age_period", SS_U32, &z->branch_age_period);
 		sr_c(&p, pc, se_confv_offline, "branch_age_wm", SS_U32, &z->branch_age_wm);
+		sr_c(&p, pc, se_confv_offline, "anticache_period", SS_U32, &z->anticache_period);
+		sr_c(&p, pc, se_confv_offline, "snapshot_period", SS_U32, &z->snapshot_period);
 		sr_c(&p, pc, se_confv_offline, "backup_prio", SS_U32, &z->backup_prio);
 		sr_c(&p, pc, se_confv_offline, "gc_wm", SS_U32, &z->gc_wm);
 		sr_c(&p, pc, se_confv_offline, "gc_db_prio", SS_U32, &z->gc_db_prio);
 		sr_c(&p, pc, se_confv_offline, "gc_prio", SS_U32, &z->gc_prio);
 		sr_c(&p, pc, se_confv_offline, "gc_period", SS_U32, &z->gc_period);
+		sr_c(&p, pc, se_confv_offline, "lru_prio", SS_U32, &z->lru_prio);
+		sr_c(&p, pc, se_confv_offline, "lru_period", SS_U32, &z->lru_period);
 		sr_c(&p, pc, se_confv_offline, "async", SS_U32, &z->async);
-		sr_C(&prev, pc, NULL, z->name, SS_UNDEF, zone, SR_NS, NULL);
+		prev = sr_C(&prev, pc, NULL, z->name, SS_UNDEF, zone, SR_NS, NULL);
+		if (compaction == NULL)
+			compaction = prev;
 	}
 	return sr_C(NULL, pc, se_confcompaction_set, "compaction", SS_U32,
 	            compaction, SR_NS, NULL);
@@ -186,6 +188,24 @@ se_confscheduler_checkpoint(srconf *c, srconfstmt *s)
 		return se_confv(c, s);
 	se *e = s->ptr;
 	return se_scheduler_checkpoint(e);
+}
+
+static inline int
+se_confscheduler_snapshot(srconf *c, srconfstmt *s)
+{
+	if (s->op != SR_WRITE)
+		return se_confv(c, s);
+	se *e = s->ptr;
+	return se_scheduler_snapshot(e);
+}
+
+static inline int
+se_confscheduler_anticache(srconf *c, srconfstmt *s)
+{
+	if (s->op != SR_WRITE)
+		return se_confv(c, s);
+	se *e = s->ptr;
+	return se_scheduler_anticache(e);
 }
 
 static inline int
@@ -255,6 +275,15 @@ se_confscheduler_gc(srconf *c, srconfstmt *s)
 }
 
 static inline int
+se_confscheduler_lru(srconf *c, srconfstmt *s)
+{
+	if (s->op != SR_WRITE)
+		return se_confv(c, s);
+	se *e = s->ptr;
+	return se_scheduler_lru(e);
+}
+
+static inline int
 se_confscheduler_run(srconf *c, srconfstmt *s)
 {
 	if (s->op != SR_WRITE)
@@ -275,6 +304,14 @@ se_confscheduler(se *e, seconfrt *rt, srconf **pc)
 	sr_C(&p, pc, se_confv, "checkpoint_lsn", SS_U64, &rt->checkpoint_lsn, SR_RO, NULL);
 	sr_C(&p, pc, se_confv, "checkpoint_lsn_last", SS_U64, &rt->checkpoint_lsn_last, SR_RO, NULL);
 	sr_c(&p, pc, se_confscheduler_checkpoint, "checkpoint",  SS_FUNCTION, NULL);
+	sr_C(&p, pc, se_confv, "anticache_active", SS_U32, &rt->anticache_active, SR_RO, NULL);
+	sr_C(&p, pc, se_confv, "anticache_asn", SS_U64, &rt->anticache_asn, SR_RO, NULL);
+	sr_C(&p, pc, se_confv, "anticache_asn_last", SS_U64, &rt->anticache_asn_last, SR_RO, NULL);
+	sr_c(&p, pc, se_confscheduler_anticache, "anticache", SS_FUNCTION, NULL);
+	sr_C(&p, pc, se_confv, "snapshot_active", SS_U32, &rt->snapshot_active, SR_RO, NULL);
+	sr_C(&p, pc, se_confv, "snapshot_ssn", SS_U64, &rt->snapshot_ssn, SR_RO, NULL);
+	sr_C(&p, pc, se_confv, "snapshot_ssn_last", SS_U64, &rt->snapshot_ssn_last, SR_RO, NULL);
+	sr_c(&p, pc, se_confscheduler_snapshot, "snapshot", SS_FUNCTION, NULL);
 	sr_c(&p, pc, se_confscheduler_on_recover, "on_recover", SS_STRING, NULL);
 	sr_c(&p, pc, se_confscheduler_on_recover_arg, "on_recover_arg", SS_STRING, NULL);
 	sr_c(&p, pc, se_confscheduler_on_event, "on_event", SS_STRING, NULL);
@@ -282,6 +319,8 @@ se_confscheduler(se *e, seconfrt *rt, srconf **pc)
 	sr_c(&p, pc, se_confv_offline, "event_on_backup", SS_U32, &e->conf.event_on_backup);
 	sr_C(&p, pc, se_confv, "gc_active", SS_U32, &rt->gc_active, SR_RO, NULL);
 	sr_c(&p, pc, se_confscheduler_gc, "gc", SS_FUNCTION, NULL);
+	sr_C(&p, pc, se_confv, "lru_active", SS_U32, &rt->lru_active, SR_RO, NULL);
+	sr_c(&p, pc, se_confscheduler_lru, "lru", SS_FUNCTION, NULL);
 	sr_c(&p, pc, se_confscheduler_run, "run", SS_FUNCTION, NULL);
 	prev = p;
 	sslist *i;
@@ -344,8 +383,8 @@ se_confperformance(se *e ssunused, seconfrt *rt, srconf **pc)
 	sr_C(&p, pc, se_confv, "set_latency", SS_STRING, rt->stat.set_latency.sz, SR_RO, NULL);
 	sr_C(&p, pc, se_confv, "delete", SS_U64, &rt->stat.del, SR_RO, NULL);
 	sr_C(&p, pc, se_confv, "delete_latency", SS_STRING, rt->stat.del_latency.sz, SR_RO, NULL);
-	sr_C(&p, pc, se_confv, "update", SS_U64, &rt->stat.update, SR_RO, NULL);
-	sr_C(&p, pc, se_confv, "update_latency", SS_STRING, rt->stat.update_latency.sz, SR_RO, NULL);
+	sr_C(&p, pc, se_confv, "upsert", SS_U64, &rt->stat.upsert, SR_RO, NULL);
+	sr_C(&p, pc, se_confv, "upsert_latency", SS_STRING, rt->stat.upsert_latency.sz, SR_RO, NULL);
 	sr_C(&p, pc, se_confv, "get", SS_U64, &rt->stat.get, SR_RO, NULL);
 	sr_C(&p, pc, se_confv, "get_latency", SS_STRING, rt->stat.get_latency.sz, SR_RO, NULL);
 	sr_C(&p, pc, se_confv, "get_read_disk", SS_STRING, rt->stat.get_read_disk.sz, SR_RO, NULL);
@@ -376,12 +415,14 @@ se_confmetric(se *e ssunused, seconfrt *rt, srconf **pc)
 {
 	srconf *metric = *pc;
 	srconf *p = NULL;
-	sr_C(&p, pc, se_confv, "dsn",  SS_U32, &rt->seq.dsn, SR_RO, NULL);
-	sr_C(&p, pc, se_confv, "nsn",  SS_U32, &rt->seq.nsn, SR_RO, NULL);
-	sr_C(&p, pc, se_confv, "bsn",  SS_U32, &rt->seq.bsn, SR_RO, NULL);
 	sr_C(&p, pc, se_confv, "lsn",  SS_U64, &rt->seq.lsn, SR_RO, NULL);
-	sr_C(&p, pc, se_confv, "lfsn", SS_U32, &rt->seq.lfsn, SR_RO, NULL);
 	sr_C(&p, pc, se_confv, "tsn",  SS_U64, &rt->seq.tsn, SR_RO, NULL);
+	sr_C(&p, pc, se_confv, "nsn",  SS_U64, &rt->seq.nsn, SR_RO, NULL);
+	sr_C(&p, pc, se_confv, "ssn",  SS_U64, &rt->seq.ssn, SR_RO, NULL);
+	sr_C(&p, pc, se_confv, "asn",  SS_U64, &rt->seq.asn, SR_RO, NULL);
+	sr_C(&p, pc, se_confv, "dsn",  SS_U32, &rt->seq.dsn, SR_RO, NULL);
+	sr_C(&p, pc, se_confv, "bsn",  SS_U32, &rt->seq.bsn, SR_RO, NULL);
+	sr_C(&p, pc, se_confv, "lfsn", SS_U64, &rt->seq.lfsn, SR_RO, NULL);
 	return sr_C(NULL, pc, NULL, "metric", SS_UNDEF, metric, SR_NS, NULL);
 }
 
@@ -407,7 +448,7 @@ se_confdb_set(srconf *c ssunused, srconfstmt *s)
 	/* get() */
 	if (s->op == SR_READ) {
 		uint64_t txn = sr_seq(&e->seq, SR_TSN);
-		so *c = se_dbcursor_new(e, txn);
+		so *c = se_viewdb_new(e, txn);
 		if (ssunlikely(c == NULL))
 			return -1;
 		*(void**)s->value = c;
@@ -435,7 +476,7 @@ se_confdb_get(srconf *c, srconfstmt *s)
 }
 
 static inline int
-se_confdb_update(srconf *c, srconfstmt *s)
+se_confdb_upsert(srconf *c, srconfstmt *s)
 {
 	if (s->op != SR_WRITE)
 		return se_confv(c, s);
@@ -444,14 +485,14 @@ se_confdb_update(srconf *c, srconfstmt *s)
 		sr_error(s->r->e, "write to %s is offline-only", s->path);
 		return -1;
 	}
-	/* set update function */
-	sfupdatef update = (sfupdatef)(uintptr_t)s->value;
-	sf_updateset(&db->scheme.fmt_update, update);
+	/* set upsert function */
+	sfupsertf upsert = (sfupsertf)(uintptr_t)s->value;
+	sf_upsertset(&db->scheme.fmt_upsert, upsert);
 	return 0;
 }
 
 static inline int
-se_confdb_updatearg(srconf *c, srconfstmt *s)
+se_confdb_upsertarg(srconf *c, srconfstmt *s)
 {
 	if (s->op != SR_WRITE)
 		return se_confv(c, s);
@@ -460,7 +501,7 @@ se_confdb_updatearg(srconf *c, srconfstmt *s)
 		sr_error(s->r->e, "write to %s is offline-only", s->path);
 		return -1;
 	}
-	sf_updateset_arg(&db->scheme.fmt_update, s->value);
+	sf_upsertset_arg(&db->scheme.fmt_upsert, s->value);
 	return 0;
 }
 
@@ -541,16 +582,13 @@ se_confdb_index(srconf *c ssunused, srconfstmt *s)
 		sr_error(&e->error, "keypart '%s' already exists", name);
 		return -1;
 	}
-	const int part_max = 8;
-	if (ssunlikely(db->scheme.scheme.count == part_max)) {
+	/* create new key-part */
+	part = sr_schemeadd(&db->scheme.scheme);
+	if (ssunlikely(part == NULL)) {
 		sr_error(&e->error, "number of index parts reached limit (%d limit)",
-		         part_max);
+		         SR_SCHEME_MAXKEY);
 		return -1;
 	}
-	/* create new key-part */
-	part = sr_schemeadd(&db->scheme.scheme, &e->a);
-	if (ssunlikely(part == NULL))
-		return -1;
 	int rc = sr_keysetname(part, &e->a, name);
 	if (ssunlikely(rc == -1))
 		goto error;
@@ -559,7 +597,7 @@ se_confdb_index(srconf *c ssunused, srconfstmt *s)
 		goto error;
 	return 0;
 error:
-	sr_schemedelete(&db->scheme.scheme, &e->a, part->pos);
+	sr_schemepop(&db->scheme.scheme, &e->a);
 	return -1;
 }
 
@@ -600,6 +638,7 @@ se_confdb(se *e, seconfrt *rt ssunused, srconf **pc)
 		sr_C(&p, pc, se_confv, "memory_used", SS_U64, &o->rtp.memory_used, SR_RO, NULL);
 		sr_C(&p, pc, se_confv, "size", SS_U64, &o->rtp.total_node_size, SR_RO, NULL);
 		sr_C(&p, pc, se_confv, "size_uncompressed", SS_U64, &o->rtp.total_node_origin_size, SR_RO, NULL);
+		sr_C(&p, pc, se_confv, "size_snapshot", SS_U64, &o->rtp.total_snapshot_size, SR_RO, NULL);
 		sr_C(&p, pc, se_confv, "count", SS_U64, &o->rtp.count, SR_RO, NULL);
 		sr_C(&p, pc, se_confv, "count_dup", SS_U64, &o->rtp.count_dup, SR_RO, NULL);
 		sr_C(&p, pc, se_confv, "read_disk", SS_U64, &o->rtp.read_disk, SR_RO, NULL);
@@ -614,8 +653,8 @@ se_confdb(se *e, seconfrt *rt ssunused, srconf **pc)
 		sr_C(&p, pc, se_confv, "branch_max", SS_U32, &o->rtp.total_branch_max, SR_RO, NULL);
 		sr_C(&p, pc, se_confv, "branch_histogram", SS_STRINGPTR, &o->rtp.histogram_branch_ptr, SR_RO, NULL);
 		sr_C(&p, pc, se_confv, "page_count", SS_U32, &o->rtp.total_page_count, SR_RO, NULL);
-		sr_C(&p, pc, se_confdb_update, "update", SS_STRING, NULL, 0, o);
-		sr_C(&p, pc, se_confdb_updatearg, "update_arg", SS_STRING, NULL, 0, o);
+		sr_C(&p, pc, se_confdb_upsert, "upsert", SS_STRING, NULL, 0, o);
+		sr_C(&p, pc, se_confdb_upsertarg, "upsert_arg", SS_STRING, NULL, 0, o);
 		/* index keys */
 		int i = 0;
 		while (i < o->scheme.scheme.count) {
@@ -634,11 +673,17 @@ se_confdb(se *e, seconfrt *rt ssunused, srconf **pc)
 		sr_C(&p, pc, se_confv_dboffline, "path", SS_STRINGPTR, &o->scheme.path, 0, o);
 		sr_C(&p, pc, se_confv_dboffline, "path_fail_on_exists", SS_U32, &o->scheme.path_fail_on_exists, 0, o);
 		sr_C(&p, pc, se_confv_dboffline, "path_fail_on_drop", SS_U32, &o->scheme.path_fail_on_drop, 0, o);
-		sr_C(&p, pc, se_confv_dboffline, "sync", SS_U32, &o->scheme.sync, 0, o);
 		sr_C(&p, pc, se_confv_dboffline, "mmap", SS_U32, &o->scheme.mmap, 0, o);
+		sr_C(&p, pc, se_confv_dboffline, "sync", SS_U32, &o->scheme.sync, 0, o);
+		sr_C(&p, pc, se_confv_dboffline, "node_preload", SS_U32, &o->scheme.node_compact_load, 0, o);
+		sr_C(&p, pc, se_confv_dboffline, "node_size", SS_U64, &o->scheme.node_size, 0, o);
+		sr_C(&p, pc, se_confv_dboffline, "page_size", SS_U32, &o->scheme.node_page_size, 0, o);
+		sr_C(&p, pc, se_confv_dboffline, "page_checksum", SS_U32, &o->scheme.node_page_checksum, 0, o);
 		sr_C(&p, pc, se_confv_dboffline, "compression_key", SS_U32, &o->scheme.compression_key, 0, o);
 		sr_C(&p, pc, se_confv_dboffline, "compression_branch", SS_STRINGPTR, &o->scheme.compression_branch_sz, 0, o);
 		sr_C(&p, pc, se_confv_dboffline, "compression", SS_STRINGPTR, &o->scheme.compression_sz, 0, o);
+		sr_C(&p, pc, se_confv_dboffline, "lru", SS_U64, &o->scheme.lru, 0, o);
+		sr_C(&p, pc, se_confv_dboffline, "lru_step", SS_U32, &o->scheme.lru_step, 0, o);
 		sr_c(&p, pc, se_confdb_branch, "branch", SS_FUNCTION, o);
 		sr_c(&p, pc, se_confdb_compact, "compact", SS_FUNCTION, o);
 		sr_c(&p, pc, se_confdb_compact_index, "compact_index", SS_FUNCTION, o);
@@ -649,6 +694,68 @@ se_confdb(se *e, seconfrt *rt ssunused, srconf **pc)
 	}
 	return sr_C(NULL, pc, se_confdb_set, "db", SS_STRING, db, SR_NS, NULL);
 }
+
+static inline int
+se_confview_set(srconf *c, srconfstmt *s)
+{
+	if (s->op != SR_WRITE)
+		return se_confv(c, s);
+	se *e = s->ptr;
+	char *name = s->value;
+	uint64_t lsn = sr_seq(&e->seq, SR_LSN);
+	/* create view object */
+	seview *view = (seview*)se_viewnew(e, lsn, name);
+	if (ssunlikely(view == NULL))
+		return -1;
+	so_listadd(&e->view, &view->o);
+	return 0;
+}
+
+static inline int
+se_confview_lsn(srconf *c, srconfstmt *s)
+{
+	int rc = se_confv(c, s);
+	if (ssunlikely(rc == -1))
+		return -1;
+	if (s->op != SR_WRITE)
+		return 0;
+	seview *view  = c->ptr;
+	se_viewupdate(view);
+	return 0;
+}
+
+static inline int
+se_confview_get(srconf *c, srconfstmt *s)
+{
+	/* get(view.name) */
+	se *e = s->ptr;
+	if (s->op != SR_READ) {
+		sr_error(&e->error, "%s", "bad operation");
+		return -1;
+	}
+	assert(c->ptr != NULL);
+	*(void**)s->value = c->ptr;
+	return 0;
+}
+
+static inline srconf*
+se_confview(se *e, seconfrt *rt ssunused, srconf **pc)
+{
+	srconf *view = NULL;
+	srconf *prev = NULL;
+	sslist *i;
+	ss_listforeach(&e->view.list, i)
+	{
+		seview *s = (seview*)sscast(i, so, link);
+		srconf *p = sr_C(NULL, pc, se_confview_lsn, "lsn", SS_U64, &s->vlsn, 0, s);
+		sr_C(&prev, pc, se_confview_get, s->name, SS_STRING, p, SR_NS, s);
+		if (view == NULL)
+			view = prev;
+	}
+	return sr_C(NULL, pc, se_confview_set, "view", SS_STRING,
+	            view, SR_NS, NULL);
+}
+
 
 static inline int
 se_confbackup_run(srconf *c, srconfstmt *s)
@@ -683,9 +790,10 @@ se_confdebug_oom(srconf *c, srconfstmt *s)
 
 	ss_aclose(&e->a);
 	ss_aclose(&e->a_db);
-	ss_aclose(&e->a_dbcursor);
 	ss_aclose(&e->a_document);
 	ss_aclose(&e->a_cursor);
+	ss_aclose(&e->a_viewdb);
+	ss_aclose(&e->a_view);
 	ss_aclose(&e->a_cachebranch);
 	ss_aclose(&e->a_cache);
 	ss_aclose(&e->a_confcursor);
@@ -697,9 +805,10 @@ se_confdebug_oom(srconf *c, srconfstmt *s)
 	ss_aopen(&e->a_oom, &ss_ooma, e->ei.oom);
 	e->a = e->a_oom;
 	e->a_db = e->a_oom;
-	e->a_dbcursor = e->a_oom;
 	e->a_document = e->a_oom;
 	e->a_cursor = e->a_oom;
+	e->a_viewdb = e->a_oom;
+	e->a_view = e->a_oom;
 	e->a_cachebranch = e->a_oom;
 	e->a_cache = e->a_oom;
 	e->a_confkv = e->a_oom;
@@ -740,6 +849,9 @@ se_confdebug(se *e, seconfrt *rt ssunused, srconf **pc)
 	sr_c(&p, pc, se_confv, "si_compaction_3", SS_U32, &e->ei.e[6]);
 	sr_c(&p, pc, se_confv, "si_compaction_4", SS_U32, &e->ei.e[7]);
 	sr_c(&p, pc, se_confv, "si_recover_0",    SS_U32, &e->ei.e[8]);
+	sr_c(&p, pc, se_confv, "si_snapshot_0",   SS_U32, &e->ei.e[9]);
+	sr_c(&p, pc, se_confv, "si_snapshot_1",   SS_U32, &e->ei.e[10]);
+	sr_c(&p, pc, se_confv, "si_snapshot_2",   SS_U32, &e->ei.e[11]);
 	sr_C(&prev, pc, NULL, "error_injection", SS_UNDEF, ei, SR_NS, NULL);
 	srconf *debug = prev;
 	return sr_C(NULL, pc, NULL, "debug", SS_UNDEF, debug, SR_NS, NULL);
@@ -757,6 +869,7 @@ se_confprepare(se *e, seconfrt *rt, srconf *c, int serialize)
 	srconf *perf       = se_confperformance(e, rt, &pc);
 	srconf *metric     = se_confmetric(e, rt, &pc);
 	srconf *log        = se_conflog(e, rt, &pc);
+	srconf *view       = se_confview(e, rt, &pc);
 	srconf *backup     = se_confbackup(e, rt, &pc);
 	srconf *db         = se_confdb(e, rt, &pc);
 	srconf *debug      = se_confdebug(e, rt, &pc);
@@ -767,7 +880,8 @@ se_confprepare(se *e, seconfrt *rt, srconf *c, int serialize)
 	scheduler->next  = perf;
 	perf->next       = metric;
 	metric->next     = log;
-	log->next        = backup;
+	log->next        = view;
+	view->next       = backup;
 	backup->next     = db;
 	if (! serialize)
 		db->next = debug;
@@ -796,10 +910,17 @@ se_confrt(se *e, seconfrt *rt)
 	rt->checkpoint_active    = e->sched.checkpoint;
 	rt->checkpoint_lsn_last  = e->sched.checkpoint_lsn_last;
 	rt->checkpoint_lsn       = e->sched.checkpoint_lsn;
+	rt->snapshot_active      = e->sched.snapshot;
+	rt->snapshot_ssn         = e->sched.snapshot_ssn;
+	rt->snapshot_ssn_last    = e->sched.snapshot_ssn_last;
+	rt->anticache_active     = e->sched.anticache;
+	rt->anticache_asn        = e->sched.anticache_asn;
+	rt->anticache_asn_last   = e->sched.anticache_asn_last;
 	rt->backup_active        = e->sched.backup;
-	rt->backup_last          = e->sched.backup_last;
-	rt->backup_last_complete = e->sched.backup_last_complete;
+	rt->backup_last          = e->sched.backup_bsn_last;
+	rt->backup_last_complete = e->sched.backup_bsn_last_complete;
 	rt->gc_active            = e->sched.gc;
+	rt->lru_active           = e->sched.lru;
 	ss_mutexunlock(&e->sched.lock);
 
 	int v = ss_quotaused_percent(&e->quota);
@@ -938,17 +1059,14 @@ int se_confinit(seconf *c, so *e)
 	if (ssunlikely(c->conf == NULL))
 		return -1;
 	sr_schemeinit(&c->scheme);
-	srkey *part = sr_schemeadd(&c->scheme, &o->a);
+	srkey *part = sr_schemeadd(&c->scheme);
 	sr_keysetname(part, &o->a, "key");
 	sr_keyset(part, &o->a, "string");
 	c->env                 = e;
 	c->path                = NULL;
 	c->path_create         = 1;
 	c->memory_limit        = 0;
-	c->node_size           = 64 * 1024 * 1024;
-	c->node_preload        = 0;
-	c->page_size           = 64 * 1024;
-	c->page_checksum       = 1;
+	c->anticache           = 0;
 	c->threads             = 6;
 	c->log_enable          = 1;
 	c->log_path            = NULL;
@@ -962,38 +1080,46 @@ int se_confinit(seconf *c, so *e)
 	ss_triggerinit(&c->on_event);
 	c->event_on_backup     = 0;
 	srzone def = {
-		.enable        = 1,
-		.mode          = 3, /* branch + compact */
-		.compact_wm    = 2,
-		.compact_mode  = 0, /* branch priority */
-		.branch_prio   = 1,
-		.branch_wm     = 10 * 1024 * 1024,
-		.branch_age    = 40,
+		.enable            = 1,
+		.mode              = 3, /* branch + compact */
+		.compact_wm        = 2,
+		.compact_mode      = 0, /* branch priority */
+		.branch_prio       = 1,
+		.branch_wm         = 10 * 1024 * 1024,
+		.branch_age        = 40,
 		.branch_age_period = 40,
-		.branch_age_wm = 1 * 1024 * 1024,
-		.backup_prio   = 1,
-		.gc_db_prio    = 1,
-		.gc_prio       = 1,
-		.gc_period     = 60,
-		.gc_wm         = 30,
-		.async         = 2 /* do not own thread */
+		.branch_age_wm     = 1 * 1024 * 1024,
+		.anticache_period  = 0,
+		.snapshot_period   = 60,
+		.backup_prio       = 1,
+		.gc_db_prio        = 1,
+		.gc_prio           = 1,
+		.gc_period         = 60,
+		.gc_wm             = 30,
+		.lru_prio          = 0,
+		.lru_period        = 0,
+		.async             = 2 /* do not own thread */
 	};
 	srzone redzone = {
-		.enable        = 1,
-		.mode          = 2, /* checkpoint */
-		.compact_wm    = 4,
-		.compact_mode  = 0,
-		.branch_prio   = 0,
-		.branch_wm     = 0,
-		.branch_age    = 0,
+		.enable            = 1,
+		.mode              = 2, /* checkpoint */
+		.compact_wm        = 4,
+		.compact_mode      = 0,
+		.branch_prio       = 0,
+		.branch_wm         = 0,
+		.branch_age        = 0,
 		.branch_age_period = 0,
-		.branch_age_wm = 0,
-		.backup_prio   = 0,
-		.gc_db_prio    = 0,
-		.gc_prio       = 0,
-		.gc_period     = 0,
-		.gc_wm         = 0,
-		.async         = 2
+		.branch_age_wm     = 0,
+		.anticache_period  = 0,
+		.snapshot_period   = 0,
+		.backup_prio       = 0,
+		.gc_db_prio        = 0,
+		.gc_prio           = 0,
+		.gc_period         = 0,
+		.gc_wm             = 0,
+		.lru_prio          = 0,
+		.lru_period        = 0,
+		.async             = 2
 	};
 	sr_zonemap_set(&o->conf.zones,  0, &def);
 	sr_zonemap_set(&o->conf.zones, 80, &redzone);

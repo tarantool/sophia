@@ -61,14 +61,18 @@ extern stgroup *deadlock_group(void);
 extern stgroup *scheme_group(void);
 extern stgroup *rev_group(void);
 extern stgroup *backup_group(void);
+extern stgroup *snapshot_group(void);
+extern stgroup *anticache_group(void);
 extern stgroup *checkpoint_group(void);
-extern stgroup *db_cursor_group(void);
+extern stgroup *view_db_group(void);
+extern stgroup *view_group(void);
+extern stgroup *view_cursor_group(void);
 extern stgroup *prefix_group(void);
 extern stgroup *transaction_md_group(void);
 extern stgroup *cursor_md_group(void);
 extern stgroup *cursor_rc_group(void);
 extern stgroup *half_commit_group(void);
-extern stgroup *update_group(void);
+extern stgroup *upsert_group(void);
 extern stgroup *async_group(void);
 extern stgroup *get_cache_group(void);
 extern stgroup *github_group(void);
@@ -78,6 +82,7 @@ extern stgroup *branch_group(void);
 extern stgroup *compact_group(void);
 extern stgroup *compact_delete_group(void);
 extern stgroup *gc_group(void);
+extern stgroup *lru_group(void);
 
 /* functional */
 extern stgroup *transaction_group(void);
@@ -92,6 +97,7 @@ extern stgroup *recover_loop_group(void);
 
 /* multithread */
 extern stgroup *multithread_group(void);
+extern stgroup *multithread_upsert_group(void);
 extern stgroup *multithread_be_group(void);
 extern stgroup *multithread_be_multipass_group(void);
 
@@ -235,14 +241,18 @@ main(int argc, char *argv[])
 	st_planadd(plan, scheme_group());
 	st_planadd(plan, rev_group());
 	st_planadd(plan, backup_group());
+	st_planadd(plan, snapshot_group());
+	st_planadd(plan, anticache_group());
 	st_planadd(plan, checkpoint_group());
-	st_planadd(plan, db_cursor_group());
+	st_planadd(plan, view_db_group());
+	st_planadd(plan, view_group());
+	st_planadd(plan, view_cursor_group());
 	st_planadd(plan, prefix_group());
 	st_planadd(plan, transaction_md_group());
 	st_planadd(plan, half_commit_group());
 	st_planadd(plan, cursor_md_group());
 	st_planadd(plan, cursor_rc_group());
-	st_planadd(plan, update_group());
+	st_planadd(plan, upsert_group());
 	st_planadd(plan, async_group());
 	st_planadd(plan, get_cache_group());
 	st_planadd(plan, github_group());
@@ -259,6 +269,7 @@ main(int argc, char *argv[])
 	st_planadd(plan, compact_group());
 	st_planadd(plan, compact_delete_group());
 	st_planadd(plan, gc_group());
+	st_planadd(plan, lru_group());
 	st_suiteadd(&st_r.suite, plan);
 
 	if (! full) {
@@ -397,6 +408,7 @@ main(int argc, char *argv[])
 	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "gc"));
 	st_planadd_scene(plan, st_suitescene_of(&st_r.suite, "pass"));
 	st_planadd(plan, multithread_be_group());
+	st_planadd(plan, multithread_upsert_group());
 	st_planadd(plan, multithread_group());
 	st_suiteadd(&st_r.suite, plan);
 

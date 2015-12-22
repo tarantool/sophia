@@ -90,7 +90,14 @@ static int
 ss_stdvfs_advise(ssvfs *f ssunused, int fd, int hint, uint64_t off, uint64_t len)
 {
 	(void)hint;
+#if defined(__APPLE__)
+	(void)fd;
+	(void)off;
+	(void)len;
+	return 0;
+#else
 	return posix_fadvise(fd, off, len, POSIX_FADV_DONTNEED);
+#endif
 }
 
 static int
@@ -186,24 +193,94 @@ ss_stdvfs_seek(ssvfs *f ssunused, int fd, uint64_t off)
 	return lseek(fd, off, SEEK_SET);
 }
 
+static int
+ss_stdvfs_mmap(ssvfs *f ssunused, ssmmap *m, int fd, uint64_t size, int ro)
+{
+	int flags = PROT_READ;
+	if (! ro)
+		flags |= PROT_WRITE;
+	m->p = mmap(NULL, size, flags, MAP_SHARED, fd, 0);
+	if (m->p == MAP_FAILED) {
+		m->p = NULL;
+		return -1;
+	}
+	m->size = size;
+	return 0;
+}
+
+static int
+ss_stdvfs_mmap_allocate(ssvfs *f ssunused, ssmmap *m, uint64_t size)
+{
+	int flags = PROT_READ|PROT_WRITE;
+	m->p = mmap(NULL, size, flags, MAP_PRIVATE|MAP_ANON, -1, 0);
+	if (ssunlikely(m->p == MAP_FAILED)) {
+		m->p = NULL;
+		return -1;
+	}
+	m->size = size;
+	return 0;
+}
+
+static int
+ss_stdvfs_mremap(ssvfs *f ssunused, ssmmap *m, uint64_t size)
+{
+	if (ssunlikely(m->p == NULL))
+		return ss_stdvfs_mmap_allocate(f, m, size);
+	void *p;
+#if  defined(__APPLE__) || \
+     defined(__FreeBSD__) || \
+	(defined(__FreeBSD_kernel__) && defined(__GLIBC__)) /* kFreeBSD */
+	p = mmap(NULL, size, PROT_READ|PROT_WRITE,
+	         MAP_PRIVATE|MAP_ANON, -1, 0);
+	if (p == MAP_FAILED)
+		return -1;
+	uint64_t to_copy = m->size;
+	if (to_copy > size)
+		to_copy = size;
+	memcpy(p, m->p, size);
+	munmap(m->p, m->size);
+#else
+	p = mremap(m->p, m->size, size, MREMAP_MAYMOVE);
+	if (ssunlikely(p == MAP_FAILED))
+		return -1;
+#endif
+	m->p = p;
+	m->size = size;
+	return 0;
+}
+
+static int
+ss_stdvfs_munmap(ssvfs *f ssunused, ssmmap *m)
+{
+	if (ssunlikely(m->p == NULL))
+		return 0;
+	int rc = munmap(m->p, m->size);
+	m->p = NULL;
+	return rc;
+}
+
 ssvfsif ss_stdvfs =
 {
-	.init     = ss_stdvfs_init,
-	.free     = ss_stdvfs_free,
-	.size     = ss_stdvfs_size,
-	.exists   = ss_stdvfs_exists,
-	.unlink   = ss_stdvfs_unlink,
-	.rename   = ss_stdvfs_rename,
-	.mkdir    = ss_stdvfs_mkdir,
-	.rmdir    = ss_stdvfs_rmdir,
-	.open     = ss_stdvfs_open,
-	.close    = ss_stdvfs_close,
-	.sync     = ss_stdvfs_sync,
-	.advise   = ss_stdvfs_advise,
-	.truncate = ss_stdvfs_truncate,
-	.pread    = ss_stdvfs_pread,
-	.pwrite   = ss_stdvfs_pwrite,
-	.write    = ss_stdvfs_write,
-	.writev   = ss_stdvfs_writev,
-	.seek     = ss_stdvfs_seek
+	.init          = ss_stdvfs_init,
+	.free          = ss_stdvfs_free,
+	.size          = ss_stdvfs_size,
+	.exists        = ss_stdvfs_exists,
+	.unlink        = ss_stdvfs_unlink,
+	.rename        = ss_stdvfs_rename,
+	.mkdir         = ss_stdvfs_mkdir,
+	.rmdir         = ss_stdvfs_rmdir,
+	.open          = ss_stdvfs_open,
+	.close         = ss_stdvfs_close,
+	.sync          = ss_stdvfs_sync,
+	.advise        = ss_stdvfs_advise,
+	.truncate      = ss_stdvfs_truncate,
+	.pread         = ss_stdvfs_pread,
+	.pwrite        = ss_stdvfs_pwrite,
+	.write         = ss_stdvfs_write,
+	.writev        = ss_stdvfs_writev,
+	.seek          = ss_stdvfs_seek,
+	.mmap          = ss_stdvfs_mmap,
+	.mmap_allocate = ss_stdvfs_mmap_allocate,
+	.mremap        = ss_stdvfs_mremap,
+	.munmap        = ss_stdvfs_munmap
 };

@@ -32,10 +32,17 @@ struct seconfrt {
 	uint32_t  checkpoint_active;
 	uint64_t  checkpoint_lsn;
 	uint64_t  checkpoint_lsn_last;
+	uint32_t  snapshot_active;
+	uint64_t  snapshot_ssn;
+	uint64_t  snapshot_ssn_last;
+	uint32_t  anticache_active;
+	uint64_t  anticache_asn;
+	uint64_t  anticache_asn_last;
 	uint32_t  backup_active;
 	uint32_t  backup_last;
 	uint32_t  backup_last_complete;
 	uint32_t  gc_active;
+	uint32_t  lru_active;
 	/* log */
 	uint32_t  log_files;
 	/* metric */
@@ -58,10 +65,6 @@ struct seconf {
 	/* backup */
 	char         *backup_path;
 	/* compaction */
-	uint32_t      node_size;
-	uint32_t      node_preload;
-	uint32_t      page_size;
-	uint32_t      page_checksum;
 	srzonemap     zones;
 	/* scheduler */
 	uint32_t      threads;
@@ -70,6 +73,7 @@ struct seconf {
 	uint32_t      event_on_backup;
 	/* memory */
 	uint64_t      memory_limit;
+	uint64_t      anticache;
 	/* log */
 	uint32_t      log_enable;
 	char         *log_path;

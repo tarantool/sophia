@@ -24,10 +24,14 @@ struct srzone {
 	uint32_t branch_age_period;
 	uint32_t branch_age_wm;
 	uint32_t backup_prio;
+	uint32_t snapshot_period;
+	uint32_t anticache_period;
 	uint32_t gc_db_prio;
 	uint32_t gc_prio;
 	uint32_t gc_period;
 	uint32_t gc_wm;
+	uint32_t lru_prio;
+	uint32_t lru_period;
 	uint32_t async;
 };
 

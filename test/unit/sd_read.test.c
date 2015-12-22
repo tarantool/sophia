@@ -67,7 +67,7 @@ sd_read_gt0(void)
 	t( sd_seal(&st_r.r, &f, NULL, &index, 0) == 0 );
 
 	ssmmap map;
-	t( ss_mmap(&map, f.fd, f.size, 1) == 0 );
+	t( ss_vfsmmap(&st_r.vfs, &map, f.fd, f.size, 1) == 0 );
 
 	ssbuf buf;
 	ss_bufinit(&buf);
@@ -117,7 +117,7 @@ sd_read_gt0(void)
 	ss_iteratorclose(&it);
 
 	ss_fileclose(&f);
-	t( ss_munmap(&map) == 0 );
+	t( ss_vfsmunmap(&st_r.vfs, &map) == 0 );
 	t( ss_vfsunlink(&st_r.vfs, "./0000.db") == 0 );
 
 	sd_indexfree(&index, &st_r.r);
@@ -195,7 +195,7 @@ sd_read_gt1(void)
 	t( sd_seal(&st_r.r, &f, NULL, &index, 0) == 0 );
 
 	ssmmap map;
-	t( ss_mmap(&map, f.fd, f.size, 1) == 0 );
+	t( ss_vfsmmap(&st_r.vfs, &map, f.fd, f.size, 1) == 0 );
 
 	ssbuf buf;
 	ss_bufinit(&buf);
@@ -269,7 +269,7 @@ sd_read_gt1(void)
 	ss_iteratorclose(&it);
 
 	ss_fileclose(&f);
-	t( ss_munmap(&map) == 0 );
+	t( ss_vfsmunmap(&st_r.vfs, &map) == 0 );
 	t( ss_vfsunlink(&st_r.vfs, "./0000.db") == 0 );
 
 	sd_indexfree(&index, &st_r.r);
@@ -287,7 +287,7 @@ sd_read_gt0_compression_zstd(void)
 	ss_vfsinit(&vfs, &ss_stdvfs);
 	srscheme cmp;
 	sr_schemeinit(&cmp);
-	srkey *part = sr_schemeadd(&cmp, &a);
+	srkey *part = sr_schemeadd(&cmp);
 	t( sr_keysetname(part, &a, "key") == 0 );
 	t( sr_keyset(part, &a, "u32") == 0 );
 	ssinjection ij;
@@ -338,7 +338,7 @@ sd_read_gt0_compression_zstd(void)
 	t( sd_buildcommit(&b, &r) == 0 );
 
 	ssmmap map;
-	t( ss_mmap(&map, f.fd, f.size, 1) == 0 );
+	t( ss_vfsmmap(&st_r.vfs, &map, f.fd, f.size, 1) == 0 );
 
 	ssbuf buf;
 	ss_bufinit(&buf);
@@ -388,7 +388,7 @@ sd_read_gt0_compression_zstd(void)
 	ss_iteratorclose(&it);
 
 	ss_fileclose(&f);
-	t( ss_munmap(&map) == 0 );
+	t( ss_vfsmunmap(&st_r.vfs, &map) == 0 );
 	t( ss_vfsunlink(&vfs, "./0000.db") == 0 );
 
 	sd_indexfree(&index, &r);
@@ -408,7 +408,7 @@ sd_read_gt0_compression_lz4(void)
 	ss_vfsinit(&vfs, &ss_stdvfs);
 	srscheme cmp;
 	sr_schemeinit(&cmp);
-	srkey *part = sr_schemeadd(&cmp, &a);
+	srkey *part = sr_schemeadd(&cmp);
 	t( sr_keysetname(part, &a, "key") == 0 );
 	t( sr_keyset(part, &a, "u32") == 0 );
 	ssinjection ij;
@@ -459,7 +459,7 @@ sd_read_gt0_compression_lz4(void)
 	t( sd_seal(&r, &f, NULL, &index, 0) == 0 );
 
 	ssmmap map;
-	t( ss_mmap(&map, f.fd, f.fd, 1) == 0 );
+	t( ss_vfsmmap(&st_r.vfs, &map, f.fd, f.size, 1) == 0 );
 
 	t( sd_buildcommit(&b, &r) == 0 );
 
@@ -511,7 +511,7 @@ sd_read_gt0_compression_lz4(void)
 	ss_iteratorclose(&it);
 
 	ss_fileclose(&f);
-	t( ss_munmap(&map) == 0 );
+	t( ss_vfsmunmap(&st_r.vfs, &map) == 0 );
 	t( ss_vfsunlink(&vfs, "./0000.db") == 0 );
 
 	sd_indexfree(&index, &r);
@@ -531,7 +531,7 @@ sd_read_gt1_compression_zstd(void)
 	ss_vfsinit(&vfs, &ss_stdvfs);
 	srscheme cmp;
 	sr_schemeinit(&cmp);
-	srkey *part = sr_schemeadd(&cmp, &a);
+	srkey *part = sr_schemeadd(&cmp);
 	t( sr_keysetname(part, &a, "key") == 0 );
 	t( sr_keyset(part, &a, "u32") == 0 );
 	ssinjection ij;
@@ -615,7 +615,7 @@ sd_read_gt1_compression_zstd(void)
 	t( sd_seal(&r, &f, NULL, &index, 0) == 0 );
 
 	ssmmap map;
-	t( ss_mmap(&map, f.fd, f.size, 1) == 0 );
+	t( ss_vfsmmap(&st_r.vfs, &map, f.fd, f.size, 1) == 0 );
 
 	ssbuf buf;
 	ss_bufinit(&buf);
@@ -689,7 +689,7 @@ sd_read_gt1_compression_zstd(void)
 	ss_iteratorclose(&it);
 
 	ss_fileclose(&f);
-	t( ss_munmap(&map) == 0 );
+	t( ss_vfsmunmap(&st_r.vfs, &map) == 0 );
 	t( ss_vfsunlink(&vfs, "./0000.db") == 0 );
 
 	sd_indexfree(&index, &r);
@@ -708,7 +708,7 @@ sd_read_gt1_compression_lz4(void)
 	ss_vfsinit(&vfs, &ss_stdvfs);
 	srscheme cmp;
 	sr_schemeinit(&cmp);
-	srkey *part = sr_schemeadd(&cmp, &a);
+	srkey *part = sr_schemeadd(&cmp);
 	t( sr_keysetname(part, &a, "key") == 0 );
 	t( sr_keyset(part, &a, "u32") == 0 );
 	ssinjection ij;
@@ -792,7 +792,7 @@ sd_read_gt1_compression_lz4(void)
 	t( sd_seal(&r, &f, NULL, &index, 0) == 0 );
 
 	ssmmap map;
-	t( ss_mmap(&map, f.fd, f.size, 1) == 0 );
+	t( ss_vfsmmap(&st_r.vfs, &map, f.fd, f.size, 1) == 0 );
 
 	ssbuf buf;
 	ss_bufinit(&buf);
@@ -866,7 +866,7 @@ sd_read_gt1_compression_lz4(void)
 	ss_iteratorclose(&it);
 
 	ss_fileclose(&f);
-	t( ss_munmap(&map) == 0 );
+	t( ss_vfsmunmap(&st_r.vfs, &map) == 0 );
 	t( ss_vfsunlink(&vfs, "./0000.db") == 0 );
 
 	sd_indexfree(&index, &r);

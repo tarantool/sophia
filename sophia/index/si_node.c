@@ -24,11 +24,13 @@ sinode *si_nodenew(sr *r)
 	}
 	n->recover = 0;
 	n->backup = 0;
+	n->lru = 0;
+	n->ac = 0;
 	n->flags = 0;
 	n->update_time = 0;
 	n->used = 0;
 	n->in_memory = 0;
-	si_branchinit(&n->self);
+	si_branchinit(&n->self, r);
 	n->branch = NULL;
 	n->branch_count = 0;
 	n->temperature = 0;
@@ -61,7 +63,8 @@ static inline int
 si_nodeclose(sinode *n, sr *r, int gc)
 {
 	int rcret = 0;
-	int rc = ss_munmap(&n->map);
+
+	int rc = ss_vfsmunmap(r->vfs, &n->map);
 	if (ssunlikely(rc == -1)) {
 		sr_malfunction(r->e, "db file '%s' munmap error: %s",
 		               ss_pathof(&n->file.path),
@@ -86,8 +89,49 @@ si_nodeclose(sinode *n, sr *r, int gc)
 }
 
 static inline int
-si_noderecover(sinode *n, sr *r, int in_memory)
+si_noderecover_snapshot(sinode *n, sr *r, sdsnapshotnode *sn)
 {
+	char *p = (char*)sn + sizeof(sdsnapshotnode);
+	uint32_t i = 0;
+	int first = 1;
+	int rc;
+	while (i < sn->branch_count) {
+		sdindexheader *h = (sdindexheader*)p;
+		sibranch *b;
+		if (first) {
+			b = &n->self;
+		} else {
+			b = si_branchnew(r);
+			if (ssunlikely(b == NULL))
+				return -1;
+		}
+		sdindex index;
+		sd_indexinit(&index);
+		rc = sd_indexcopy(&index, r, h);
+		if (ssunlikely(rc == -1))
+			return -1;
+		si_branchset(b, &index);
+
+		b->next   = n->branch;
+		n->branch = b;
+		n->branch_count++;
+		first = 0;
+		p += sd_indexsize(h);
+		i++;
+	}
+	return 0;
+}
+
+static inline int
+si_noderecover(sinode *n, sr *r, sdsnapshotnode *sn, int in_memory)
+{
+	/* fast recover from snapshot file */
+	if (sn) {
+		n->temperature_reads = sn->temperature_reads;
+		if (! in_memory)
+			return si_noderecover_snapshot(n, r, sn);
+	}
+
 	/* recover branches */
 	ssiter i;
 	ss_iterinit(sd_recover, &i);
@@ -99,7 +143,7 @@ si_noderecover(sinode *n, sr *r, int in_memory)
 		sdindexheader *h = ss_iteratorof(&i);
 		sibranch *b;
 		if (first) {
-			b =  &n->self;
+			b = &n->self;
 		} else {
 			b = si_branchnew(r);
 			if (ssunlikely(b == NULL))
@@ -113,17 +157,9 @@ si_noderecover(sinode *n, sr *r, int in_memory)
 		si_branchset(b, &index);
 
 		if (in_memory) {
-			char *start = (char*)h - h->total - sizeof(sdseal);
-			char *end = start + sizeof(sdseal) + h->total +
-			            sizeof(sdindexheader) + h->size +
-			            h->extension;
-			int branch_size = end - start;
-			rc = ss_blobensure(&b->copy, branch_size);
-			if (ssunlikely(rc == -1)) {
-				sr_oom_malfunction(r->e);
+			rc = si_branchload(b, r, &n->file);
+			if (ssunlikely(rc == -1))
 				goto error;
-			}
-			memcpy(b->copy.p, start, branch_size);
 		}
 
 		b->next   = n->branch;
@@ -145,7 +181,8 @@ error:
 	return -1;
 }
 
-int si_nodeopen(sinode *n, sr *r, sischeme *scheme, sspath *path)
+int si_nodeopen(sinode *n, sr *r, sischeme *scheme, sspath *path,
+                sdsnapshotnode *sn)
 {
 	int rc = ss_fileopen(&n->file, path->path);
 	if (ssunlikely(rc == -1)) {
@@ -164,7 +201,7 @@ int si_nodeopen(sinode *n, sr *r, sischeme *scheme, sspath *path)
 	int in_memory = 0;
 	if (scheme->storage == SI_SIN_MEMORY)
 		in_memory = 1;
-	rc = si_noderecover(n, r, in_memory);
+	rc = si_noderecover(n, r, sn, in_memory);
 	if (ssunlikely(rc == -1))
 		goto error;
 	if (scheme->mmap) {
@@ -181,7 +218,8 @@ error:
 int si_nodecreate(sinode *n, sr *r, sischeme *scheme, sdid *id)
 {
 	sspath path;
-	ss_pathAB(&path, scheme->path, id->parent, id->id, ".db.incomplete");
+	ss_pathcompound(&path, scheme->path, id->parent, id->id,
+	                ".db.incomplete");
 	int rc = ss_filenew(&n->file, path.path);
 	if (ssunlikely(rc == -1)) {
 		sr_malfunction(r->e, "db file '%s' create error: %s",
@@ -193,7 +231,7 @@ int si_nodecreate(sinode *n, sr *r, sischeme *scheme, sdid *id)
 
 int si_nodemap(sinode *n, sr *r)
 {
-	int rc = ss_mmap(&n->map, n->file.fd, n->file.size, 1);
+	int rc = ss_vfsmmap(r->vfs, &n->map, n->file.fd, n->file.size, 1);
 	if (ssunlikely(rc == -1)) {
 		sr_malfunction(r->e, "db file '%s' mmap error: %s",
 		               ss_pathof(&n->file.path),
@@ -268,8 +306,9 @@ int si_nodeseal(sinode *n, sr *r, sischeme *scheme)
 		}
 	}
 	sspath path;
-	ss_pathAB(&path, scheme->path, n->self.id.parent,
-	          n->self.id.id, ".db.seal");
+	ss_pathcompound(&path, scheme->path,
+	                n->self.id.parent, n->self.id.id,
+	                ".db.seal");
 	rc = ss_filerename(&n->file, path.path);
 	if (ssunlikely(rc == -1)) {
 		sr_malfunction(r->e, "db file '%s' rename error: %s",
@@ -283,7 +322,7 @@ int si_nodeseal(sinode *n, sr *r, sischeme *scheme)
 int si_nodecomplete(sinode *n, sr *r, sischeme *scheme)
 {
 	sspath path;
-	ss_pathA(&path, scheme->path, n->self.id.id, ".db");
+	ss_path(&path, scheme->path, n->self.id.id, ".db");
 	int rc = ss_filerename(&n->file, path.path);
 	if (ssunlikely(rc == -1)) {
 		sr_malfunction(r->e, "db file '%s' rename error: %s",

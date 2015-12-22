@@ -2,24 +2,33 @@
 # sophia examples
 #
 
-all: validate clean set-get-delete transaction cursor
+all: validate clean crud multipart upsert transaction cursor view
 validate:
 	@if [ ! -f ../sophia.o ]; then \
 		echo "Please build sophia first."; \
 		echo ""; \
 		exit 1; \
 	fi
-set-get-delete:
+crud:
 	gcc crud.c ../libsophia.a -I../ -pedantic -std=c99 -Wall -Wextra -pthread -g -o crud
+multipart:
+	gcc multipart.c ../libsophia.a -I../ -pedantic -std=c99 -Wall -Wextra -pthread -g -o multipart
+upsert:
+	gcc upsert.c ../libsophia.a -I../ -pedantic -std=c99 -Wall -Wextra -pthread -g -o upsert
 transaction:
 	gcc transaction.c ../libsophia.a -I../ -pedantic -std=c99 -Wall -Wextra -pthread -g -o transaction
 cursor:
 	gcc cursor.c ../libsophia.a -I../ -pedantic -std=c99 -Wall -Wextra -pthread -g -o cursor
+view:
+	gcc view.c ../libsophia.a -I../ -pedantic -std=c99 -Wall -Wextra -pthread -g -o view
 clean:
 	@rm -rf _test
 	@rm -f crud
+	@rm -f multipart
+	@rm -f upsert
 	@rm -f transaction
 	@rm -f cursor
+	@rm -f view
 
 .PHONY: all validate clean
 

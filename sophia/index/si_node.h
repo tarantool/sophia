@@ -14,6 +14,8 @@ typedef struct sinode sinode;
 #define SI_NONE       0
 #define SI_LOCK       1
 #define SI_ROTATE     2
+#define SI_PROMOTE    4
+#define SI_REVOKE     8
 
 #define SI_RDB        16
 #define SI_RDB_DBI    32
@@ -27,6 +29,8 @@ struct sinode {
 	uint64_t  update_time;
 	uint32_t  used;
 	uint32_t  backup;
+	uint64_t  lru;
+	uint64_t  ac;
 	uint32_t  in_memory;
 	sibranch  self;
 	sibranch *branch;
@@ -44,7 +48,7 @@ struct sinode {
 } sspacked;
 
 sinode *si_nodenew(sr*);
-int si_nodeopen(sinode*, sr*, sischeme*, sspath*);
+int si_nodeopen(sinode*, sr*, sischeme*, sspath*, sdsnapshotnode*);
 int si_nodecreate(sinode*, sr*, sischeme*, sdid*);
 int si_nodefree(sinode*, sr*, int);
 int si_nodegc_index(sr*, svindex*);
@@ -120,6 +124,19 @@ si_nodecmp(sinode *n, void *key, int size, srscheme *s)
 	/* key < range */
 	assert(r == 1);
 	return 1;
+}
+
+static inline uint64_t
+si_nodesize(sinode *n)
+{
+	uint64_t size = 0;
+	sibranch *b = n->branch;
+	while (b) {
+		size += sd_indexsize(b->index.h) +
+		        sd_indextotal(&b->index);
+		b = b->next;
+	}
+	return size;
 }
 
 #endif

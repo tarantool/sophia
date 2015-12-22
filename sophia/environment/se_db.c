@@ -32,6 +32,10 @@ se_dbscheme_init(sedb *db, char *name)
 	scheme->sync                  = 2;
 	scheme->mmap                  = 0;
 	scheme->storage               = SI_SCACHE;
+	scheme->node_size             = 64 * 1024 * 1024;
+	scheme->node_compact_load     = 0;
+	scheme->node_page_size        = 128 * 1024;
+	scheme->node_page_checksum    = 1;
 	scheme->compression_key       = 0;
 	scheme->compression           = 0;
 	scheme->compression_if        = &ss_nonefilter;
@@ -41,6 +45,8 @@ se_dbscheme_init(sedb *db, char *name)
 	scheme->fmt_storage           = SF_SRAW;
 	scheme->path_fail_on_exists   = 0;
 	scheme->path_fail_on_drop     = 1;
+	scheme->lru                   = 0;
+	scheme->lru_step              = 128 * 1024;
 	scheme->buf_gc_wm             = 1024 * 1024;
 	scheme->storage_sz = ss_strdup(&e->a, "cache");
 	if (ssunlikely(scheme->storage_sz == NULL))
@@ -53,16 +59,14 @@ se_dbscheme_init(sedb *db, char *name)
 		ss_strdup(&e->a, scheme->compression_branch_if->name);
 	if (ssunlikely(scheme->compression_branch_sz == NULL))
 		goto e1;
-	sf_updateinit(&scheme->fmt_update);
+	sf_upsertinit(&scheme->fmt_upsert);
 	scheme->fmt_sz = ss_strdup(&e->a, "kv");
 	if (ssunlikely(scheme->fmt_sz == NULL))
 		goto e1;
 	/* init single key part as string */
 	int rc;
 	sr_schemeinit(&scheme->scheme);
-	srkey *part = sr_schemeadd(&scheme->scheme, &e->a);
-	if (ssunlikely(part == NULL))
-		goto e1;
+	srkey *part = sr_schemeadd(&scheme->scheme);
 	rc = sr_keysetname(part, &e->a, "key");
 	if (ssunlikely(rc == -1))
 		goto e1;
@@ -86,7 +90,10 @@ se_dbscheme_set(sedb *db)
 	if (strcmp(s->storage_sz, "cache") == 0) {
 		s->storage = SI_SCACHE;
 	} else
-	if (strcmp(s->storage_sz, "in_memory") == 0) {
+	if (strcmp(s->storage_sz, "anti-cache") == 0) {
+		s->storage = SI_SANTI_CACHE;
+	} else
+	if (strcmp(s->storage_sz, "in-memory") == 0) {
 		s->storage = SI_SIN_MEMORY;
 	} else {
 		sr_error(&e->error, "unknown storage type '%s'", s->storage_sz);
@@ -101,6 +108,14 @@ se_dbscheme_set(sedb *db)
 	} else {
 		sr_error(&e->error, "unknown format type '%s'", s->fmt_sz);
 		return -1;
+	}
+	/* upsert and format */
+	if (sf_upserthas(&s->fmt_upsert)) {
+		if (s->fmt == SF_DOCUMENT) {
+			sr_error(&e->error, "%s", "incompatible options: format=document "
+			         "and upsert function");
+			return -1;
+		}
 	}
 	/* compression_key */
 	if (s->compression_key) {
@@ -142,16 +157,11 @@ se_dbscheme_set(sedb *db)
 		if (ssunlikely(s->path_backup == NULL))
 			return sr_oom(&e->error);
 	}
-	/* compaction */
-	s->node_size          = e->conf.node_size;
-	s->node_page_size     = e->conf.page_size;
-	s->node_page_checksum = e->conf.page_checksum;
-	s->node_compact_load  = e->conf.node_preload;
 
 	db->r.scheme = &s->scheme;
 	db->r.fmt = s->fmt;
 	db->r.fmt_storage = s->fmt_storage;
-	db->r.fmt_update  = &s->fmt_update;
+	db->r.fmt_upsert = &s->fmt_upsert;
 	return 0;
 }
 
@@ -310,7 +320,7 @@ se_dbread(sedb *db, sedocument *o, sx *x, int x_search,
 		int rc = sx_get(x, &db->coindex, &vp, &vup);
 		if (ssunlikely(rc == -1 || rc == 2 /* delete */))
 			goto e2;
-		if (rc == 1 && !sv_is(&vup, SVUPDATE)) {
+		if (rc == 1 && !sv_is(&vup, SVUPSERT)) {
 			so *ret = se_document_new(e, &db->o, &vup, async);
 			if (ssunlikely(ret == NULL))
 				sv_vfree(&db->r, vup.v);
@@ -362,11 +372,11 @@ se_dbread(sedb *db, sedocument *o, sx *x, int x_search,
 		arg->vlsn = 0;
 		arg->vlsn_generate = 1;
 	}
-	if (sf_updatehas(&db->scheme.fmt_update)) {
-		arg->update = 1;
+	if (sf_upserthas(&db->scheme.fmt_upsert)) {
+		arg->upsert = 1;
 		if (arg->order == SS_EQ) {
 			arg->order = SS_GTE;
-			arg->update_eq = 1;
+			arg->upsert_eq = 1;
 		}
 	}
 
@@ -412,7 +422,7 @@ se_dbwrite(sedb *db, sedocument *o, uint8_t flags)
 	}
 	if (ssunlikely(! se_online(&db->status)))
 		goto error;
-	if (flags == SVUPDATE && !sf_updatehas(&db->scheme.fmt_update))
+	if (flags == SVUPSERT && !sf_upserthas(&db->scheme.fmt_upsert))
 		flags = 0;
 
 	/* prepare document */
@@ -468,14 +478,14 @@ se_dbset(so *o, so *v)
 }
 
 static int
-se_dbupdate(so *o, so *v)
+se_dbupsert(so *o, so *v)
 {
 	sedb *db = se_cast(o, sedb*, SEDB);
 	sedocument *key = se_cast(v, sedocument*, SEDOCUMENT);
 	se *e = se_of(&db->o);
 	uint64_t start = ss_utime();
-	int rc = se_dbwrite(db, key, SVUPDATE);
-	sr_statupdate(&e->stat, start);
+	int rc = se_dbwrite(db, key, SVUPSERT);
+	sr_statupsert(&e->stat, start);
 	return rc;
 }
 
@@ -550,7 +560,7 @@ static soif sedbif =
 	.getstring    = se_dbget_string,
 	.getint       = se_dbget_int,
 	.set          = se_dbset,
-	.update       = se_dbupdate,
+	.upsert       = se_dbupsert,
 	.del          = se_dbdel,
 	.get          = se_dbget,
 	.begin        = NULL,

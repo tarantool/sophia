@@ -29,7 +29,9 @@
 		b. if parent has incomplete - remove incomplete
 		c. if parent has seal - remove parent, complete seal
 
-	see: test/recovery_crash.test.c
+	see: snapshot recover
+	see: scheme recover
+	see: test/crash/durability.test.c
 */
 
 #include <libss.h>
@@ -39,7 +41,7 @@
 #include <libsd.h>
 #include <libsi.h>
 
-sinode *si_bootstrap(si *i, uint32_t parent)
+sinode *si_bootstrap(si *i, uint64_t parent)
 {
 	sr *r = i->r;
 	/* create node */
@@ -132,6 +134,7 @@ e0:
 static inline int
 si_deploy(si *i, sr *r, int create_directory)
 {
+	/* create directory */
 	int rc;
 	if (sslikely(create_directory)) {
 		rc = ss_vfsmkdir(r->vfs, i->scheme->path, 0755);
@@ -141,11 +144,13 @@ si_deploy(si *i, sr *r, int create_directory)
 			return -1;
 		}
 	}
+	/* create scheme file */
 	rc = si_schemedeploy(i->scheme, r);
 	if (ssunlikely(rc == -1)) {
 		sr_malfunction_set(r->e);
 		return -1;
 	}
+	/* create initial node */
 	sinode *n = si_bootstrap(i, 0);
 	if (ssunlikely(n == NULL))
 		return -1;
@@ -160,15 +165,17 @@ si_deploy(si *i, sr *r, int create_directory)
 	}
 	si_insert(i, n);
 	si_plannerupdate(&i->p, SI_COMPACT|SI_BRANCH|SI_TEMP, n);
+	i->size = si_nodesize(n);
 	return 1;
 }
 
-static inline ssize_t
-si_processid(char **str) {
+static inline int64_t
+si_processid(char **str)
+{
 	char *s = *str;
 	size_t v = 0;
 	while (*s && *s != '.') {
-		if (ssunlikely(!isdigit(*s)))
+		if (ssunlikely(! isdigit(*s)))
 			return -1;
 		v = (v * 10) + *s - '0';
 		s++;
@@ -178,13 +185,13 @@ si_processid(char **str) {
 }
 
 static inline int
-si_process(char *name, uint32_t *nsn, uint32_t *parent)
+si_process(char *name, uint64_t *nsn, uint64_t *parent)
 {
 	/* id.db */
 	/* id.id.db.incomplete */
 	/* id.id.db.seal */
 	char *token = name;
-	ssize_t id = si_processid(&token);
+	int64_t id = si_processid(&token);
 	if (ssunlikely(id == -1))
 		return -1;
 	*parent = id;
@@ -219,8 +226,8 @@ si_trackdir(sitrack *track, sr *r, si *i)
 	while ((de = readdir(dir))) {
 		if (ssunlikely(de->d_name[0] == '.'))
 			continue;
-		uint32_t id_parent = 0;
-		uint32_t id = 0;
+		uint64_t id_parent = 0;
+		uint64_t id = 0;
 		int rc = si_process(de->d_name, &id, &id_parent);
 		if (ssunlikely(rc == -1))
 			continue; /* skip unknown file */
@@ -246,7 +253,8 @@ si_trackdir(sitrack *track, sr *r, si *i)
 			head->recover |= rc;
 			/* remove any incomplete file made during compaction */
 			if (rc == SI_RDB_DBI) {
-				ss_pathAB(&path, i->scheme->path, id_parent, id, ".db.incomplete");
+				ss_pathcompound(&path, i->scheme->path, id_parent, id,
+				                ".db.incomplete");
 				rc = ss_vfsunlink(r->vfs, path.path);
 				if (ssunlikely(rc == -1)) {
 					sr_malfunction(r->e, "db file '%s' unlink error: %s",
@@ -261,8 +269,9 @@ si_trackdir(sitrack *track, sr *r, si *i)
 			if (ssunlikely(node == NULL))
 				goto error;
 			node->recover = SI_RDB_DBSEAL;
-			ss_pathAB(&path, i->scheme->path, id_parent, id, ".db.seal");
-			rc = si_nodeopen(node, r, i->scheme, &path);
+			ss_pathcompound(&path, i->scheme->path, id_parent, id,
+			                ".db.seal");
+			rc = si_nodeopen(node, r, i->scheme, &path, NULL);
 			if (ssunlikely(rc == -1)) {
 				si_nodefree(node, r, 0);
 				goto error;
@@ -274,13 +283,19 @@ si_trackdir(sitrack *track, sr *r, si *i)
 		}
 		assert(rc == SI_RDB);
 
+		head = si_trackget(track, id);
+		if (head != NULL && (head->recover & SI_RDB)) {
+			/* loaded by snapshot */
+			continue;
+		}
+
 		/* recover node */
 		node = si_nodenew(r);
 		if (ssunlikely(node == NULL))
 			goto error;
 		node->recover = SI_RDB;
-		ss_pathA(&path, i->scheme->path, id, ".db");
-		rc = si_nodeopen(node, r, i->scheme, &path);
+		ss_path(&path, i->scheme->path, id, ".db");
+		rc = si_nodeopen(node, r, i->scheme, &path, NULL);
 		if (ssunlikely(rc == -1)) {
 			si_nodefree(node, r, 0);
 			goto error;
@@ -288,17 +303,11 @@ si_trackdir(sitrack *track, sr *r, si *i)
 		si_trackmetrics(track, node);
 
 		/* track node */
-		head = si_trackget(track, id);
 		if (sslikely(head == NULL)) {
 			si_trackset(track, node);
 		} else {
 			/* replace a node previously created by a
-			 * incomplete compaction. */
-			if (! (head->recover & SI_RDB_UNDEF)) {
-				sr_malfunction(r->e, "corrupted database repository: %s",
-				               i->scheme->path);
-				goto error;
-			}
+			 * incomplete compaction */
 			si_trackreplace(track, head, node);
 			head->recover &= ~SI_RDB_UNDEF;
 			node->recover |= head->recover;
@@ -399,13 +408,74 @@ si_recovercomplete(sitrack *track, sr *r, si *index, ssbuf *buf)
 }
 
 static inline int
-si_recoverindex(si *i, sr *r)
+si_tracksnapshot(sitrack *track, sr *r, si *i, sdsnapshot *s)
+{
+	/* read snapshot */
+	ssiter iter;
+	ss_iterinit(sd_snapshotiter, &iter);
+	int rc;
+	rc = ss_iteropen(sd_snapshotiter, &iter, r, s);
+	if (ssunlikely(rc == -1))
+		return -1;
+	for (; ss_iterhas(sd_snapshotiter, &iter);
+	      ss_iternext(sd_snapshotiter, &iter))
+	{
+		sdsnapshotnode *n = ss_iterof(sd_snapshotiter, &iter);
+		/* skip updated nodes */
+		sspath path;
+		ss_path(&path, i->scheme->path, n->id, ".db");
+		rc = ss_vfsexists(r->vfs, path.path);
+		if (! rc)
+			continue;
+		uint64_t size = ss_vfssize(r->vfs, path.path);
+		if (size != n->size_file)
+			continue;
+		/* recover node */
+		sinode *node = si_nodenew(r);
+		if (ssunlikely(node == NULL))
+			return -1;
+		node->recover = SI_RDB;
+		rc = si_nodeopen(node, r, i->scheme, &path, n);
+		if (ssunlikely(rc == -1)) {
+			si_nodefree(node, r, 0);
+			return -1;
+		}
+		si_trackmetrics(track, node);
+		si_trackset(track, node);
+	}
+	/* recover index temperature (read stats) */
+	sdsnapshotheader *h = sd_snapshot_header(s);
+	i->read_cache = h->read_cache;
+	i->read_disk  = h->read_disk;
+	i->lru_v      = h->lru_v;
+	i->lru_steps  = h->lru_steps;
+	return 0;
+}
+
+static inline void
+si_recoversize(si *i)
+{
+	ssrbnode *pn = ss_rbmin(&i->i);
+	while (pn) {
+		sinode *n = sscast(pn, sinode, node);
+		i->size += si_nodesize(n);
+		pn = ss_rbnext(&i->i, pn);
+	}
+}
+
+static inline int
+si_recoverindex(si *i, sr *r, sdsnapshot *s)
 {
 	sitrack track;
 	si_trackinit(&track);
 	ssbuf buf;
 	ss_bufinit(&buf);
 	int rc;
+	if (sd_snapshot_is(s)) {
+		rc = si_tracksnapshot(&track, r, i, s);
+		if (ssunlikely(rc == -1))
+			goto error;
+	}
 	rc = si_trackdir(&track, r, i);
 	if (ssunlikely(rc == -1))
 		goto error;
@@ -422,6 +492,7 @@ si_recoverindex(si *i, sr *r)
 		r->seq->nsn = track.nsn;
 	if (track.lsn > r->seq->lsn)
 		r->seq->lsn = track.lsn;
+	si_recoversize(i);
 	ss_buffree(&buf, r->a);
 	return 0;
 error:
@@ -449,6 +520,71 @@ si_recoverdrop(si *i, sr *r)
 	return 1;
 }
 
+static inline int
+si_recoversnapshot(si *i, sr *r, sdsnapshot *s)
+{
+	/* recovery stages:
+
+	   snapshot            (1) ok
+	   snapshot.incomplete (2) remove snapshot.incomplete
+	   snapshot            (3) remove snapshot.incomplete, load snapshot
+	   snapshot.incomplete
+	*/
+
+	/* recover snapshot file (crash recover) */
+	int snapshot = 0;
+	int snapshot_incomplete = 0;
+
+	char path[1024];
+	snprintf(path, sizeof(path), "%s/index", i->scheme->path);
+	snapshot = ss_vfsexists(r->vfs, path);
+	snprintf(path, sizeof(path), "%s/index.incomplete", i->scheme->path);
+	snapshot_incomplete = ss_vfsexists(r->vfs, path);
+
+	int rc;
+	if (snapshot_incomplete) {
+		rc = ss_vfsunlink(r->vfs, path);
+		if (ssunlikely(rc == -1)) {
+			sr_malfunction(r->e, "index file '%s' unlink error: %s",
+			               path, strerror(errno));
+			return -1;
+		}
+	}
+	if (! snapshot)
+		return 0;
+
+	/* read snapshot file */
+	snprintf(path, sizeof(path), "%s/index", i->scheme->path);
+
+	ssize_t size = ss_vfssize(r->vfs, path);
+	if (ssunlikely(size == -1)) {
+		sr_malfunction(r->e, "index file '%s' read error: %s",
+		               path, strerror(errno));
+		return -1;
+	}
+	rc = ss_bufensure(&s->buf, r->a, size);
+	if (ssunlikely(rc == -1))
+		return sr_oom_malfunction(r->e);
+	ssfile file;
+	ss_fileinit(&file, r->vfs);
+	rc = ss_fileopen(&file, path);
+	if (ssunlikely(rc == -1)) {
+		sr_malfunction(r->e, "index file '%s' open error: %s",
+		               path, strerror(errno));
+		return -1;
+	}
+	rc = ss_filepread(&file, 0, s->buf.s, size);
+	if (ssunlikely(rc == -1)) {
+		sr_malfunction(r->e, "index file '%s' read error: %s",
+		               path, strerror(errno));
+		ss_fileclose(&file);
+		return -1;
+	}
+	ss_bufadvance(&s->buf, size);
+	ss_fileclose(&file);
+	return 0;
+}
+
 int si_recover(si *i)
 {
 	sr *r = i->r;
@@ -470,7 +606,15 @@ int si_recover(si *i)
 	r->scheme = &i->scheme->scheme;
 	r->fmt = i->scheme->fmt;
 	r->fmt_storage = i->scheme->fmt_storage;
-	rc = si_recoverindex(i, r);
+	sdsnapshot snapshot;
+	sd_snapshot_init(&snapshot);
+	rc = si_recoversnapshot(i, r, &snapshot);
+	if (ssunlikely(rc == -1)) {
+		sd_snapshot_free(&snapshot, r);
+		return -1;
+	}
+	rc = si_recoverindex(i, r, &snapshot);
+	sd_snapshot_free(&snapshot, r);
 	if (sslikely(rc <= 0))
 		return rc;
 deploy:

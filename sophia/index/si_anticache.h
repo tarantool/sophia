@@ -1,5 +1,5 @@
-#ifndef SV_UPDATEV_H_
-#define SV_UPDATEV_H_
+#ifndef SI_ANTICACHE_H_
+#define SI_ANTICACHE_H_
 
 /*
  * sophia database
@@ -9,6 +9,6 @@
  * BSD License
 */
 
-extern svif sv_updatevif;
+int si_anticache(si*, siplan*);
 
 #endif

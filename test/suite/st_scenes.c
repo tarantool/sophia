@@ -73,7 +73,7 @@ void st_scene_init(stscene *s ssunused)
 
 void st_scene_scheme_u32(stscene *s ssunused)
 {
-	srkey *part = sr_schemeadd(&st_r.scheme, &st_r.a);
+	srkey *part = sr_schemeadd(&st_r.scheme);
 	t( sr_keysetname(part, &st_r.a, "key") == 0 );
 	t( sr_keyset(part, &st_r.a, "u32") == 0 );
 }
@@ -125,7 +125,6 @@ void st_scene_env(stscene *s ssunused)
 
 	t( sp_setstring(env, "sophia.path", st_r.conf->sophia_dir, 0) == 0 );
 	t( sp_setint(env, "scheduler.threads", 0) == 0 );
-	t( sp_setint(env, "compaction.page_checksum", 1) == 0 );
 	t( sp_setint(env, "log.enable", 1) == 0 );
 	t( sp_setstring(env, "log.path", st_r.conf->log_dir, 0) == 0 );
 	t( sp_setint(env, "log.sync", 0) == 0 );
@@ -135,6 +134,7 @@ void st_scene_env(stscene *s ssunused)
 	t( sp_setstring(env, "db.test.format", "kv", 0) == 0 );
 	t( sp_setint(env, "db.test.sync", 0) == 0 );
 	t( sp_setint(env, "db.test.mmap", 0) == 0 );
+	t( sp_setint(env, "db.test.page_checksum", 1) == 0 );
 	t( sp_setstring(env, "db.test.compression", "none", 0) == 0 );
 	t( sp_setstring(env, "db.test.compression_branch", "none", 0) == 0 );
 	t( sp_setstring(env, "db.test.index.key", "u32", 0) == 0 );
@@ -253,7 +253,7 @@ void st_scene_phase_scheme_int(stscene *s)
 			fprintf(st_r.output, ".scheme_u32");
 			fflush(st_r.output);
 		}
-		part = sr_schemeadd(&st_r.scheme, &st_r.a);
+		part = sr_schemeadd(&st_r.scheme);
 		t( sr_keysetname(part, &st_r.a, "key") == 0 );
 		t( sr_keyset(part, &st_r.a, "u32") == 0 );
 		t( sp_setstring(st_r.env, "db.test.index.key", "u32", 0) == 0 );
@@ -263,7 +263,7 @@ void st_scene_phase_scheme_int(stscene *s)
 			fprintf(st_r.output, ".scheme_u64");
 			fflush(st_r.output);
 		}
-		part = sr_schemeadd(&st_r.scheme, &st_r.a);
+		part = sr_schemeadd(&st_r.scheme);
 		t( sr_keysetname(part, &st_r.a, "key") == 0 );
 		t( sr_keyset(part, &st_r.a, "u64") == 0 );
 		t( sp_setstring(st_r.env, "db.test.index.key", "u64", 0) == 0 );
@@ -273,10 +273,10 @@ void st_scene_phase_scheme_int(stscene *s)
 			fprintf(st_r.output, ".scheme_u32_u32");
 			fflush(st_r.output);
 		}
-		part = sr_schemeadd(&st_r.scheme, &st_r.a);
+		part = sr_schemeadd(&st_r.scheme);
 		t( sr_keysetname(part, &st_r.a, "key") == 0 );
 		t( sr_keyset(part, &st_r.a, "u32") == 0 );
-		part = sr_schemeadd(&st_r.scheme, &st_r.a);
+		part = sr_schemeadd(&st_r.scheme);
 		t( sr_keysetname(part, &st_r.a, "key_b") == 0 );
 		t( sr_keyset(part, &st_r.a, "u32") == 0 );
 		t( sp_setstring(st_r.env, "db.test.index.key", "u32", 0) == 0 );
@@ -296,7 +296,7 @@ void st_scene_phase_scheme(stscene *s)
 			fprintf(st_r.output, ".scheme_u32");
 			fflush(st_r.output);
 		}
-		part = sr_schemeadd(&st_r.scheme, &st_r.a);
+		part = sr_schemeadd(&st_r.scheme);
 		t( sr_keysetname(part, &st_r.a, "key") == 0 );
 		t( sr_keyset(part, &st_r.a, "u32") == 0 );
 		t( sp_setstring(st_r.env, "db.test.index.key", "u32", 0) == 0 );
@@ -306,7 +306,7 @@ void st_scene_phase_scheme(stscene *s)
 			fprintf(st_r.output, ".scheme_u64");
 			fflush(st_r.output);
 		}
-		part = sr_schemeadd(&st_r.scheme, &st_r.a);
+		part = sr_schemeadd(&st_r.scheme);
 		t( sr_keysetname(part, &st_r.a, "key") == 0 );
 		t( sr_keyset(part, &st_r.a, "u64") == 0 );
 		t( sp_setstring(st_r.env, "db.test.index.key", "u64", 0) == 0 );
@@ -316,7 +316,7 @@ void st_scene_phase_scheme(stscene *s)
 			fprintf(st_r.output, ".scheme_string");
 			fflush(st_r.output);
 		}
-		part = sr_schemeadd(&st_r.scheme, &st_r.a);
+		part = sr_schemeadd(&st_r.scheme);
 		t( sr_keysetname(part, &st_r.a, "key") == 0 );
 		t( sr_keyset(part, &st_r.a, "string") == 0 );
 		t( sp_setstring(st_r.env, "db.test.index.key", "string", 0) == 0 );
@@ -326,10 +326,10 @@ void st_scene_phase_scheme(stscene *s)
 			fprintf(st_r.output, ".scheme_u32_u32");
 			fflush(st_r.output);
 		}
-		part = sr_schemeadd(&st_r.scheme, &st_r.a);
+		part = sr_schemeadd(&st_r.scheme);
 		t( sr_keysetname(part, &st_r.a, "key") == 0 );
 		t( sr_keyset(part, &st_r.a, "u32") == 0 );
-		part = sr_schemeadd(&st_r.scheme, &st_r.a);
+		part = sr_schemeadd(&st_r.scheme);
 		t( sr_keysetname(part, &st_r.a, "key_b") == 0 );
 		t( sr_keyset(part, &st_r.a, "u32") == 0 );
 		t( sp_setstring(st_r.env, "db.test.index.key", "u32", 0) == 0 );
@@ -341,10 +341,10 @@ void st_scene_phase_scheme(stscene *s)
 			fprintf(st_r.output, ".scheme_string_u32");
 			fflush(st_r.output);
 		}
-		part = sr_schemeadd(&st_r.scheme, &st_r.a);
+		part = sr_schemeadd(&st_r.scheme);
 		t( sr_keysetname(part, &st_r.a, "key") == 0 );
 		t( sr_keyset(part, &st_r.a, "string") == 0 );
-		part = sr_schemeadd(&st_r.scheme, &st_r.a);
+		part = sr_schemeadd(&st_r.scheme);
 		t( sr_keysetname(part, &st_r.a, "key_b") == 0 );
 		t( sr_keyset(part, &st_r.a, "u32") == 0 );
 		t( sp_setstring(st_r.env, "db.test.index.key", "string", 0) == 0 );
@@ -394,7 +394,7 @@ void st_scene_phase_storage(stscene *s)
 			fprintf(st_r.output, ".storage_in_memory");
 			fflush(st_r.output);
 		}
-		t( sp_setstring(st_r.env, "db.test.storage", "in_memory", 0) == 0 );
+		t( sp_setstring(st_r.env, "db.test.storage", "in-memory", 0) == 0 );
 		break;
 	case 2:
 		if (st_r.verbose) {
@@ -473,7 +473,7 @@ void st_scene_phase_storage(stscene *s)
 			fprintf(st_r.output, ".storage_in_memory_mmap");
 			fflush(st_r.output);
 		}
-		t( sp_setstring(st_r.env, "db.test.storage", "in_memory", 0) == 0 );
+		t( sp_setstring(st_r.env, "db.test.storage", "in-memory", 0) == 0 );
 		t( sp_setint(st_r.env, "db.test.mmap", 1) == 0 );
 		break;
 	case 12:
@@ -481,7 +481,7 @@ void st_scene_phase_storage(stscene *s)
 			fprintf(st_r.output, ".storage_in_memory_compression");
 			fflush(st_r.output);
 		}
-		t( sp_setstring(st_r.env, "db.test.storage", "in_memory", 0) == 0 );
+		t( sp_setstring(st_r.env, "db.test.storage", "in-memory", 0) == 0 );
 		t( sp_setstring(st_r.env, "db.test.compression", "lz4", 0) == 0 );
 		break;
 	case 13:
@@ -489,7 +489,7 @@ void st_scene_phase_storage(stscene *s)
 			fprintf(st_r.output, ".storage_in_memory_compression_compression_key");
 			fflush(st_r.output);
 		}
-		t( sp_setstring(st_r.env, "db.test.storage", "in_memory", 0) == 0 );
+		t( sp_setstring(st_r.env, "db.test.storage", "in-memory", 0) == 0 );
 		t( sp_setstring(st_r.env, "db.test.compression", "lz4", 0) == 0 );
 		t( sp_setint(st_r.env, "db.test.compression_key", 1) == 0 );
 		break;

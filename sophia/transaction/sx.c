@@ -119,7 +119,7 @@ uint64_t sx_vlsn(sxmanager *m)
 	return vlsn;
 }
 
-ss_rbget(sx_matchtx, ss_cmp((sscast(n, sx, node))->id, *(uint64_t*)key))
+ss_rbget(sx_matchtx, ss_cmp((sscast(n, sx, node))->id, sscastu64(key)))
 
 sx *sx_find(sxmanager *m, uint64_t id)
 {
@@ -437,8 +437,8 @@ int sx_set(sx *x, sxindex *index, svv *version)
 	sxv *own = sx_vmatch(head, x->id);
 	if (ssunlikely(own))
 	{
-		if (ssunlikely(version->flags & SVUPDATE)) {
-			sr_error(r->e, "%s", "only one update statement is "
+		if (ssunlikely(version->flags & SVUPSERT)) {
+			sr_error(r->e, "%s", "only one upsert statement is "
 			         "allowed per a transaction key");
 			goto error;
 		}

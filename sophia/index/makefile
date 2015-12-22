@@ -10,6 +10,8 @@ LIBSI_O = si_scheme.o \
           si_merge.o \
           si_compaction.o \
           si_drop.o \
+          si_anticache.o \
+          si_snapshot.o \
           si_backup.o \
           si_profiler.o \
           si_recover.o

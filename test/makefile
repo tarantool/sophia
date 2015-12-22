@@ -40,14 +40,18 @@ STS_TESTS = unit/ss_leb128.test.o \
             generic/scheme.test.o \
             generic/rev.test.o \
             generic/backup.test.o \
+            generic/snapshot.test.o \
+            generic/anticache.test.o \
             generic/checkpoint.test.o \
-            generic/db_cursor.test.o \
+            generic/view_db.test.o \
+            generic/view.test.o \
+            generic/view_cursor.test.o \
             generic/prefix.test.o \
             generic/transaction_md.test.o \
             generic/cursor_md.test.o \
             generic/cursor_rc.test.o \
             generic/half_commit.test.o \
-            generic/update.test.o \
+            generic/upsert.test.o \
             generic/async.test.o \
             generic/get_cache.test.o \
             generic/github.test.o \
@@ -55,6 +59,7 @@ STS_TESTS = unit/ss_leb128.test.o \
             compaction/compact.test.o \
             compaction/compact_delete.test.o \
             compaction/gc.test.o \
+            compaction/lru.test.o \
             functional/hermitage.test.o \
             functional/transaction.test.o \
             functional/cursor.test.o \
@@ -64,6 +69,7 @@ STS_TESTS = unit/ss_leb128.test.o \
             crash/io.test.o \
             crash/recover_loop.test.o \
             multithread/multithread.test.o \
+            multithread/multithread_upsert.test.o \
             multithread/multithread_be.test.o \
             memory/leak.test.o
 
@@ -82,15 +88,19 @@ endif
 STS_CFLAGS     = $(SOPHIA_INCLUDE) -g -O0 -Wall -I. -I../sophia -Isuite/ -pthread
 STS_LDFLAGS    = ../sophia.o suite/libst.a -pthread -lm $(STS_COVERAGE)
 STS_BINARY     = sophia-test
+STS_PROF       = sophia-prof
 STS_SOPHIA_DIR = _test_sophia
 STS_BACKUP_DIR = _test_backup
 STS_LOG_DIR    = _test_log
 STS_DB_DIR     = _test_db
 
-all: banner validate sophia-test
-sophia-test: suite $(STS_TESTS)
+all: banner sophia-test sophia-prof
+sophia-test: validate suite $(STS_TESTS)
 	@echo "ld $(STS_BINARY)"
 	@$(CC) $(STS_TESTS) sophia-test.c $(STS_CFLAGS) $(STS_LDFLAGS) -o $(STS_BINARY)
+sophia-prof: validate suite
+	@echo "ld $(STS_PROF)"
+	@$(CC) sophia-prof.c $(STS_CFLAGS) $(STS_LDFLAGS) -o $(STS_PROF)
 suite:
 	@(cd suite; make --silent --no-print-directory)
 banner:
@@ -109,14 +119,17 @@ validate:
 clean:
 	@(cd suite; make --no-print-directory clean)
 	@rm -f $(STS_BINARY)
+	@rm -f $(STS_PROF)
 	@rm -f $(STS_TESTS)
 	@rm -fr $(STS_SOPHIA_DIR) \
 	        $(STS_BACKUP_DIR) \
 	        $(STS_DB_DIR) $(STS_LOG_DIR)
-test:
+test_gdb:
 	@gdb -q -return-child-result -batch -ex "run" -ex "bt" --args $(STS_BINARY) -v
+test:
+	@./$(STS_BINARY) -v
 
 .PHONY: all clean validate banner suite test
-.PHONY: sophia-test
+.PHONY: sophia-test sophia-prof
 
 # vim: syntax=make
