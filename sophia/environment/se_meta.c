@@ -880,7 +880,7 @@ int se_metaserialize(semeta *c, ssbuf *buf)
 	se *e = (se*)c->env;
 	semetart rt;
 	se_metart(e, &rt);
-	srmeta meta[1024];
+	srmeta *meta = c->meta;
 	srmeta *root;
 	root = se_metaprepare(e, &rt, meta, 1);
 	srmetastmt stmt = {
@@ -903,7 +903,7 @@ se_metaquery(se *e, int op, const char *path,
 {
 	semetart rt;
 	se_metart(e, &rt);
-	srmeta meta[1024];
+	srmeta *meta = e->meta.meta;
 	srmeta *root;
 	root = se_metaprepare(e, &rt, meta, 0);
 	srmetastmt stmt = {
@@ -980,9 +980,12 @@ int64_t se_metaget_int(so *o, const char *path)
 	return result;
 }
 
-void se_metainit(semeta *c, so *e)
+int se_metainit(semeta *c, so *e)
 {
 	se *o = (se*)e;
+	c->meta = ss_malloc(&o->a, sizeof(srmeta) * 1024);
+	if (ssunlikely(c->meta == NULL))
+		return -1;
 	sr_schemeinit(&c->scheme);
 	srkey *part = sr_schemeadd(&c->scheme, &o->a);
 	sr_keysetname(part, &o->a, "key");
@@ -1042,11 +1045,16 @@ void se_metainit(semeta *c, so *e)
 	sr_zonemap_set(&o->meta.zones,  0, &def);
 	sr_zonemap_set(&o->meta.zones, 80, &redzone);
 	c->backup_path = NULL;
+	return 0;
 }
 
 void se_metafree(semeta *c)
 {
 	se *e = (se*)c->env;
+	if (c->meta) {
+		ss_free(&e->a, c->meta);
+		c->meta = NULL;
+	}
 	if (c->path) {
 		ss_free(&e->a, c->path);
 		c->path = NULL;

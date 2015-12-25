@@ -79,10 +79,11 @@ struct semeta {
 	uint32_t      two_phase_recover;
 	uint32_t      commit_lsn;
 	srscheme      scheme;
+	srmeta       *meta;
 	so           *env;
 };
 
-void     se_metainit(semeta*, so*);
+int      se_metainit(semeta*, so*);
 void     se_metafree(semeta*);
 int      se_metavalidate(semeta*);
 int      se_metaserialize(semeta*, ssbuf*);
