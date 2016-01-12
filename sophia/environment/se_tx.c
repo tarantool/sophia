@@ -100,7 +100,7 @@ se_txdelete(so *o, so *v)
 static void*
 se_txget(so *o, so *v)
 {
-	setx  *t = se_cast(o, setx*, SETX);
+	setx *t = se_cast(o, setx*, SETX);
 	sedocument *key = se_cast(v, sedocument*, SEDOCUMENT);
 	se *e = se_of(&t->o);
 	sedb *db = se_cast(key->o.parent, sedb*, SEDB);
@@ -118,7 +118,7 @@ se_txget(so *o, so *v)
 		break;
 	default: goto error;
 	}
-	return se_dbread(db, key, &t->t, 1, NULL, SS_EQ);
+	return se_dbread(db, key, &t->t, 1, NULL, key->order);
 error:
 	so_destroy(&key->o);
 	return NULL;
@@ -162,7 +162,7 @@ se_txprepare(sx *x, sv *v, void *arg0, void *arg1)
 	arg->has           = 1;
 	arg->vlsn          = x->vlsn;
 	arg->vlsn_generate = 0;
-	se_execute(&q);
+	se_execute_read(&q);
 	se_reqend(&q);
 	return q.rc;
 }
@@ -224,7 +224,7 @@ se_txcommit(so *o)
 	sereqarg *arg = &q.arg;
 	arg->log = &t->t.log;
 	arg->lsn = 0;
-	if (recover || e->conf.commit_lsn)
+	if (t->lsn >= 0)
 		arg->lsn = t->lsn;
 	if (ssunlikely(recover)) {
 		arg->recover = 1;
@@ -234,7 +234,7 @@ se_txcommit(so *o)
 		arg->vlsn_generate = 1;
 		arg->vlsn = 0;
 	}
-	se_execute(&q);
+	se_execute_write(&q);
 	se_txend(t, 0, 0);
 	return q.rc;
 }
@@ -297,8 +297,8 @@ so *se_txnew(se *e)
 	so_init(&t->o, &se_o[SETX], &setxif, &e->o, &e->o);
 	sx_init(&e->xm, &t->t);
 	t->start = ss_utime();
-	t->lsn = 0;
-	sx_begin(&e->xm, &t->t, SXRW, 0);
+	t->lsn = -1;
+	sx_begin(&e->xm, &t->t, SXRW, UINT64_MAX);
 	se_dbbind(e);
 	so_listadd(&e->tx, &t->o);
 	return &t->o;

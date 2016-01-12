@@ -24,6 +24,10 @@ conf_version(void)
 	t( s != NULL );
 	t( strcmp(s, "2.1.1") == 0 );
 	free(s);
+	s = sp_getstring(env, "sophia.version_storage", NULL);
+	t( s != NULL );
+	t( strcmp(s, "2.1.1") == 0 );
+	free(s);
 	t( sp_destroy(env) == 0 );
 }
 
@@ -109,7 +113,6 @@ conf_validation(void)
 	t( sp_setint(env, "log.rotate_wm", 0) == -1 );
 	t( sp_setint(env, "log.rotate_sync", 0) == -1 );
 	t( sp_setint(env, "log.two_phase_commit", 0) == -1 );
-	t( sp_setint(env, "log.commit_lsn", 0) == -1 );
 
 	t( sp_setstring(env, "db", "test", 0) == 0 );
 	void *db = sp_getobject(env, "db.test");

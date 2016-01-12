@@ -27,7 +27,8 @@ struct sischeme {
 	uint32_t    mmap;
 	sistorage   storage;
 	char       *storage_sz;
-	uint64_t    anticache;
+	uint32_t    cache_mode;
+	char       *cache_sz;
 	uint32_t    sync;
 	uint64_t    node_size;
 	uint32_t    node_page_size;
@@ -40,6 +41,7 @@ struct sischeme {
 	char       *compression_branch_sz;
 	ssfilterif *compression_branch_if;
 	uint32_t    compression_key;
+	uint32_t    amqf;
 	uint64_t    lru;
 	uint32_t    lru_step;
 	uint32_t    buf_gc_wm;

@@ -26,7 +26,11 @@ enum {
 	SI_SCHEME_SYNC,
 	SI_SCHEME_COMPRESSION,
 	SI_SCHEME_COMPRESSION_KEY,
-	SI_SCHEME_COMPRESSION_BRANCH
+	SI_SCHEME_COMPRESSION_BRANCH,
+	SI_SCHEME_COMPRESSION_RESERVED0,
+	SI_SCHEME_COMPRESSION_RESERVED1,
+	SI_SCHEME_AMQF,
+	SI_SCHEME_CACHE_MODE
 };
 
 void si_schemeinit(sischeme *s)
@@ -63,6 +67,10 @@ void si_schemefree(sischeme *s, sr *r)
 	if (s->fmt_sz) {
 		ss_free(r->a, s->fmt_sz);
 		s->fmt_sz = NULL;
+	}
+	if (s->cache_sz) {
+		ss_free(r->a, s->cache_sz);
+		s->cache_sz = NULL;
 	}
 	sr_schemefree(&s->scheme, r->a);
 }
@@ -130,6 +138,14 @@ int si_schemedeploy(sischeme *s, sr *r)
 	rc = sd_schemeadd(&c, r, SI_SCHEME_COMPRESSION_KEY, SS_U32,
 	                  &s->compression_key,
 	                  sizeof(s->compression_key));
+	if (ssunlikely(rc == -1))
+		goto error;
+	rc = sd_schemeadd(&c, r, SI_SCHEME_AMQF, SS_U32,
+	                  &s->amqf, sizeof(s->amqf));
+	if (ssunlikely(rc == -1))
+		goto error;
+	rc = sd_schemeadd(&c, r, SI_SCHEME_CACHE_MODE, SS_U32,
+	                  &s->cache_mode, sizeof(s->cache_mode));
 	if (ssunlikely(rc == -1))
 		goto error;
 	rc = sd_schemecommit(&c, r);
@@ -229,6 +245,12 @@ int si_schemerecover(sischeme *s, sr *r)
 				goto error;
 			break;
 		}
+		case SI_SCHEME_AMQF:
+			s->amqf = sd_schemeu32(opt);
+			break;
+		case SI_SCHEME_CACHE_MODE:
+			s->cache_mode = sd_schemeu32(opt);
+			break;
 		default: /* skip unknown */
 			break;
 		}

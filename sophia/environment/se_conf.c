@@ -74,6 +74,7 @@ se_confsophia(se *e, seconfrt *rt, srconf **pc)
 	srconf *sophia = *pc;
 	srconf *p = NULL;
 	sr_C(&p, pc, se_confv, "version", SS_STRING, rt->version, SR_RO, NULL);
+	sr_C(&p, pc, se_confv, "version_storage", SS_STRING, rt->version_storage, SR_RO, NULL);
 	sr_C(&p, pc, se_confv, "build", SS_STRING, rt->build, SR_RO, NULL);
 	sr_C(&p, pc, se_confsophia_error, "error", SS_STRING, NULL, SR_RO, NULL);
 	sr_c(&p, pc, se_confv_offline, "path", SS_STRINGPTR, &e->conf.path);
@@ -366,7 +367,6 @@ se_conflog(se *e, seconfrt *rt, srconf **pc)
 	sr_c(&p, pc, se_conflog_gc, "gc", SS_FUNCTION, NULL);
 	sr_C(&p, pc, se_confv, "files", SS_U32, &rt->log_files, SR_RO, NULL);
 	sr_c(&p, pc, se_confv_offline, "two_phase_recover", SS_U32, &e->conf.two_phase_recover);
-	sr_c(&p, pc, se_confv_offline, "commit_lsn", SS_U32, &e->conf.commit_lsn);
 	return sr_C(NULL, pc, NULL, "log", SS_UNDEF, log, SR_NS, NULL);
 }
 
@@ -639,6 +639,7 @@ se_confdb(se *e, seconfrt *rt ssunused, srconf **pc)
 		sr_C(&p, pc, se_confv, "size", SS_U64, &o->rtp.total_node_size, SR_RO, NULL);
 		sr_C(&p, pc, se_confv, "size_uncompressed", SS_U64, &o->rtp.total_node_origin_size, SR_RO, NULL);
 		sr_C(&p, pc, se_confv, "size_snapshot", SS_U64, &o->rtp.total_snapshot_size, SR_RO, NULL);
+		sr_C(&p, pc, se_confv, "size_amqf", SS_U64, &o->rtp.total_amqf_size, SR_RO, NULL);
 		sr_C(&p, pc, se_confv, "count", SS_U64, &o->rtp.count, SR_RO, NULL);
 		sr_C(&p, pc, se_confv, "count_dup", SS_U64, &o->rtp.count_dup, SR_RO, NULL);
 		sr_C(&p, pc, se_confv, "read_disk", SS_U64, &o->rtp.read_disk, SR_RO, NULL);
@@ -670,9 +671,12 @@ se_confdb(se *e, seconfrt *rt ssunused, srconf **pc)
 		sr_C(&p, pc, se_confdb_status,   "status", SS_STRING, o, SR_RO, NULL);
 		sr_C(&p, pc, se_confv_dboffline, "storage", SS_STRINGPTR, &o->scheme.storage_sz, 0, o);
 		sr_C(&p, pc, se_confv_dboffline, "format", SS_STRINGPTR, &o->scheme.fmt_sz, 0, o);
+		sr_C(&p, pc, se_confv_dboffline, "amqf", SS_U32, &o->scheme.amqf, 0, o);
 		sr_C(&p, pc, se_confv_dboffline, "path", SS_STRINGPTR, &o->scheme.path, 0, o);
 		sr_C(&p, pc, se_confv_dboffline, "path_fail_on_exists", SS_U32, &o->scheme.path_fail_on_exists, 0, o);
 		sr_C(&p, pc, se_confv_dboffline, "path_fail_on_drop", SS_U32, &o->scheme.path_fail_on_drop, 0, o);
+		sr_C(&p, pc, se_confv_dboffline, "cache_mode", SS_U32, &o->scheme.cache_mode, 0, o);
+		sr_C(&p, pc, se_confv_dboffline, "cache", SS_STRINGPTR, &o->scheme.cache_sz, 0, o);
 		sr_C(&p, pc, se_confv_dboffline, "mmap", SS_U32, &o->scheme.mmap, 0, o);
 		sr_C(&p, pc, se_confv_dboffline, "sync", SS_U32, &o->scheme.sync, 0, o);
 		sr_C(&p, pc, se_confv_dboffline, "node_preload", SS_U32, &o->scheme.node_compact_load, 0, o);
@@ -897,6 +901,11 @@ se_confrt(se *e, seconfrt *rt)
 	         SR_VERSION_A - '0',
 	         SR_VERSION_B - '0',
 	         SR_VERSION_C - '0');
+	snprintf(rt->version_storage, sizeof(rt->version_storage),
+	         "%d.%d.%d",
+	         SR_VERSION_STORAGE_A - '0',
+	         SR_VERSION_STORAGE_B - '0',
+	         SR_VERSION_STORAGE_C - '0');
 	snprintf(rt->build, sizeof(rt->build), "%s",
 	         SR_VERSION_COMMIT);
 
@@ -1074,7 +1083,6 @@ int se_confinit(seconf *c, so *e)
 	c->log_sync            = 0;
 	c->log_rotate_sync     = 1;
 	c->two_phase_recover   = 0;
-	c->commit_lsn          = 0;
 	c->on_recover.function = NULL;
 	c->on_recover.arg      = NULL;
 	ss_triggerinit(&c->on_event);

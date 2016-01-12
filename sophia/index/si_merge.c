@@ -25,7 +25,7 @@ si_redistribute(si *index, sr *r, sdc *c, sinode *node, ssbuf *result)
 	while (ss_iterhas(sv_indexiter, &i))
 	{
 		sv *v = ss_iterof(sv_indexiter, &i);
-		int rc = ss_bufadd(&c->b, r->a, &v->v, sizeof(svv**));
+		int rc = ss_bufadd(&c->b, r->a, &v->v, sizeof(svref**));
 		if (ssunlikely(rc == -1))
 			return sr_oom_malfunction(r->e);
 		ss_iternext(sv_indexiter, &i);
@@ -33,7 +33,7 @@ si_redistribute(si *index, sr *r, sdc *c, sinode *node, ssbuf *result)
 	if (ssunlikely(ss_bufused(&c->b) == 0))
 		return 0;
 	ss_iterinit(ss_bufiterref, &i);
-	ss_iteropen(ss_bufiterref, &i, &c->b, sizeof(svv*));
+	ss_iteropen(ss_bufiterref, &i, &c->b, sizeof(svref*));
 	ssiter j;
 	ss_iterinit(ss_bufiterref, &j);
 	ss_iteropen(ss_bufiterref, &j, result, sizeof(sinode*));
@@ -45,7 +45,7 @@ si_redistribute(si *index, sr *r, sdc *c, sinode *node, ssbuf *result)
 		if (p == NULL) {
 			assert(prev != NULL);
 			while (ss_iterhas(ss_bufiterref, &i)) {
-				svv *v = ss_iterof(ss_bufiterref, &i);
+				svref *v = ss_iterof(ss_bufiterref, &i);
 				v->next = NULL;
 				sv_indexset(&prev->i0, r, v);
 				ss_iternext(ss_bufiterref, &i);
@@ -54,10 +54,10 @@ si_redistribute(si *index, sr *r, sdc *c, sinode *node, ssbuf *result)
 		}
 		while (ss_iterhas(ss_bufiterref, &i))
 		{
-			svv *v = ss_iterof(ss_bufiterref, &i);
+			svref *v = ss_iterof(ss_bufiterref, &i);
 			v->next = NULL;
 			sdindexpage *page = sd_indexmin(&p->self.index);
-			int rc = sr_compare(r->scheme, sv_vpointer(v), v->size,
+			int rc = sr_compare(r->scheme, sv_vpointer(v->v), v->v->size,
 			                    sd_indexpage_min(&p->self.index, page),
 			                    page->sizemin);
 			if (ssunlikely(rc >= 0))
@@ -75,20 +75,20 @@ si_redistribute(si *index, sr *r, sdc *c, sinode *node, ssbuf *result)
 }
 
 static inline void
-si_redistribute_set(si *index, sr *r, uint64_t now, svv *v)
+si_redistribute_set(si *index, sr *r, uint64_t now, svref *v)
 {
 	index->update_time = now;
 	/* match node */
 	ssiter i;
 	ss_iterinit(si_iter, &i);
-	ss_iteropen(si_iter, &i, r, index, SS_GTE, sv_vpointer(v), v->size);
+	ss_iteropen(si_iter, &i, r, index, SS_GTE, sv_vpointer(v->v), v->v->size);
 	sinode *node = ss_iterof(si_iter, &i);
 	assert(node != NULL);
 	/* update node */
 	svindex *vindex = si_nodeindex(node);
 	sv_indexset(vindex, r, v);
 	node->update_time = index->update_time;
-	node->used += sv_vsize(v);
+	node->used += sv_vsize(v->v);
 	/* schedule node */
 	si_plannerupdate(&index->p, SI_BRANCH, node);
 }
@@ -102,7 +102,7 @@ si_redistribute_index(si *index, sr *r, sdc *c, sinode *node)
 	ss_iteropen(sv_indexiter, &i, r, vindex, SS_GTE, NULL, 0);
 	while (ss_iterhas(sv_indexiter, &i)) {
 		sv *v = ss_iterof(sv_indexiter, &i);
-		int rc = ss_bufadd(&c->b, r->a, &v->v, sizeof(svv**));
+		int rc = ss_bufadd(&c->b, r->a, &v->v, sizeof(svref**));
 		if (ssunlikely(rc == -1))
 			return sr_oom_malfunction(r->e);
 		ss_iternext(sv_indexiter, &i);
@@ -111,9 +111,9 @@ si_redistribute_index(si *index, sr *r, sdc *c, sinode *node)
 		return 0;
 	uint64_t now = ss_utime();
 	ss_iterinit(ss_bufiterref, &i);
-	ss_iteropen(ss_bufiterref, &i, &c->b, sizeof(svv*));
+	ss_iteropen(ss_bufiterref, &i, &c->b, sizeof(svref*));
 	while (ss_iterhas(ss_bufiterref, &i)) {
-		svv *v = ss_iterof(ss_bufiterref, &i);
+		svref *v = ss_iterof(ss_bufiterref, &i);
 		v->next = NULL;
 		si_redistribute_set(index, r, now, v);
 		ss_iternext(ss_bufiterref, &i);
@@ -142,12 +142,14 @@ si_split(si *index, sdc *c, ssbuf *result,
          ssiter   *i,
          uint64_t  size_node,
          uint64_t  size_stream,
+         uint32_t  stream,
          uint64_t  vlsn,
          uint64_t  vlsn_lru)
 {
 	sr *r = index->r;
 	int rc;
 	sdmergeconf mergeconf = {
+		.stream          = stream,
 		.size_stream     = size_stream,
 		.size_node       = size_node,
 		.size_page       = index->scheme->node_page_size,
@@ -155,14 +157,18 @@ si_split(si *index, sdc *c, ssbuf *result,
 		.compression_key = index->scheme->compression_key,
 		.compression     = index->scheme->compression,
 		.compression_if  = index->scheme->compression_if,
+		.amqf            = index->scheme->amqf,
 		.vlsn            = vlsn,
 		.vlsn_lru        = vlsn_lru,
 		.save_delete     = 0,
-		.save_upsert     = 0
+		.save_upsert     = 0,
+		.save_set        = !index->scheme->cache_mode
 	};
 	sinode *n = NULL;
 	sdmerge merge;
-	sd_mergeinit(&merge, r, i, &c->build, &c->upsert, &mergeconf);
+	rc = sd_mergeinit(&merge, r, i, &c->build, &c->qf, &c->upsert, &mergeconf);
+	if (ssunlikely(rc == -1))
+		return -1;
 	while ((rc = sd_merge(&merge)) > 0)
 	{
 		/* create new node */
@@ -257,7 +263,8 @@ int si_merge(si *index, sdc *c, sinode *node,
              uint64_t vlsn,
              uint64_t vlsn_lru,
              ssiter *stream,
-             uint64_t size_stream)
+             uint64_t size_stream,
+             uint32_t n_stream)
 {
 	sr *r = index->r;
 	ssbuf *result = &c->a;
@@ -273,6 +280,7 @@ int si_merge(si *index, sdc *c, sinode *node,
 	              node, stream,
 	              index->scheme->node_size,
 	              size_stream,
+	              n_stream,
 	              vlsn,
 	              vlsn_lru);
 	if (ssunlikely(rc == -1))

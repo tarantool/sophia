@@ -51,8 +51,6 @@ sr_schemeinit(srscheme *s)
 static inline void
 sr_schemefree(srscheme *s, ssa *a)
 {
-	if (s->parts == NULL)
-		return;
 	int i = 0;
 	while (i < s->count) {
 		if (s->parts[i].name)
@@ -127,6 +125,7 @@ int sr_keyset(srkey*, ssa*, char*);
 
 int sr_schemesave(srscheme*, ssa*, ssbuf*);
 int sr_schemeload(srscheme*, ssa*, char*, int);
+int sr_schemeeq(srscheme*, srscheme*);
 
 static inline int
 sr_compare(srscheme *s, char *a, int asize, char *b, int bsize) {

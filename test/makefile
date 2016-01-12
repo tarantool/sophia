@@ -7,6 +7,7 @@ STS_TESTS = unit/ss_leb128.test.o \
             unit/ss_aslab.test.o \
             unit/ss_order.test.o \
             unit/ss_rq.test.o \
+            unit/ss_qf.test.o \
             unit/ss_ht.test.o \
             unit/ss_zstdfilter.test.o \
             unit/ss_lz4filter.test.o \
@@ -24,7 +25,6 @@ STS_TESTS = unit/ss_leb128.test.o \
             unit/sd_read.test.o \
             unit/sd_pageiter.test.o \
             generic/conf.test.o \
-            generic/cache.test.o \
             generic/error.test.o \
             generic/method.test.o \
             generic/profiler.test.o \
@@ -41,25 +41,29 @@ STS_TESTS = unit/ss_leb128.test.o \
             generic/rev.test.o \
             generic/backup.test.o \
             generic/snapshot.test.o \
-            generic/anticache.test.o \
             generic/checkpoint.test.o \
             generic/view_db.test.o \
             generic/view.test.o \
             generic/view_cursor.test.o \
             generic/prefix.test.o \
             generic/transaction_md.test.o \
+            generic/transaction_misc.test.o \
+            generic/cursor_cache.test.o \
             generic/cursor_md.test.o \
             generic/cursor_rc.test.o \
             generic/half_commit.test.o \
             generic/upsert.test.o \
             generic/async.test.o \
             generic/get_cache.test.o \
+            generic/amqf.test.o \
             generic/github.test.o \
             compaction/branch.test.o \
             compaction/compact.test.o \
             compaction/compact_delete.test.o \
             compaction/gc.test.o \
             compaction/lru.test.o \
+            cache/cache.test.o \
+            cache/anticache.test.o \
             functional/hermitage.test.o \
             functional/transaction.test.o \
             functional/cursor.test.o \
@@ -80,13 +84,22 @@ SOPHIA_DIRS    = std format runtime object version log database \
                  environment \
                  sophia
 SOPHIA_INCLUDE = $(addprefix -I../sophia/, $(SOPHIA_DIRS))
+
 ifdef ENABLE_COVERAGE
 STS_COVERAGE   = --coverage
 else
 STS_COVERAGE   =
 endif
 STS_CFLAGS     = $(SOPHIA_INCLUDE) -g -O0 -Wall -I. -I../sophia -Isuite/ -pthread
-STS_LDFLAGS    = ../sophia.o suite/libst.a -pthread -lm $(STS_COVERAGE)
+STS_LDFLAGS    = ../sophia.o -pthread -lm $(STS_COVERAGE)
+STS_OBJECTS    = suite/st_r.o \
+                 suite/st_suite.o \
+                 suite/st_generator.o \
+                 suite/st.o \
+                 suite/st_document.o \
+                 suite/st_tools.o \
+                 suite/st_scenes.o \
+                 suite/st_phase.o
 STS_BINARY     = sophia-test
 STS_PROF       = sophia-prof
 STS_SOPHIA_DIR = _test_sophia
@@ -95,14 +108,12 @@ STS_LOG_DIR    = _test_log
 STS_DB_DIR     = _test_db
 
 all: banner sophia-test sophia-prof
-sophia-test: validate suite $(STS_TESTS)
+sophia-test: validate $(STS_OBJECTS) $(STS_TESTS)
 	@echo "ld $(STS_BINARY)"
-	@$(CC) $(STS_TESTS) sophia-test.c $(STS_CFLAGS) $(STS_LDFLAGS) -o $(STS_BINARY)
-sophia-prof: validate suite
+	@$(CC) $(STS_TESTS) sophia-test.c $(STS_CFLAGS) $(STS_LDFLAGS) $(STS_OBJECTS) -o $(STS_BINARY)
+sophia-prof: validate $(STS_OBJECTS)
 	@echo "ld $(STS_PROF)"
 	@$(CC) sophia-prof.c $(STS_CFLAGS) $(STS_LDFLAGS) -o $(STS_PROF)
-suite:
-	@(cd suite; make --silent --no-print-directory)
 banner:
 	@echo
 	@echo sophia test-suite.
@@ -117,10 +128,10 @@ validate:
 	@echo "cc $<"
 	@$(CC) $(STS_CFLAGS) -c $< -o $@
 clean:
-	@(cd suite; make --no-print-directory clean)
 	@rm -f $(STS_BINARY)
 	@rm -f $(STS_PROF)
 	@rm -f $(STS_TESTS)
+	@rm -f $(STS_OBJECTS)
 	@rm -fr $(STS_SOPHIA_DIR) \
 	        $(STS_BACKUP_DIR) \
 	        $(STS_DB_DIR) $(STS_LOG_DIR)
@@ -129,7 +140,7 @@ test_gdb:
 test:
 	@./$(STS_BINARY) -v
 
-.PHONY: all clean validate banner suite test
+.PHONY: all clean validate banner test
 .PHONY: sophia-test sophia-prof
 
 # vim: syntax=make

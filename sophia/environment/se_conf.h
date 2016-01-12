@@ -22,11 +22,14 @@ typedef struct {
 struct seconfrt {
 	/* sophia */
 	char      version[16];
+	char      version_storage[16];
 	char      build[32];
 	/* memory */
 	uint64_t  memory_used;
 	uint32_t  pager_pools;
 	uint32_t  pager_pool_size;
+	uint32_t  pager_ref_pools;
+	uint32_t  pager_ref_pool_size;
 	/* scheduler */
 	char      zone[4];
 	uint32_t  checkpoint_active;
@@ -81,7 +84,6 @@ struct seconf {
 	uint32_t      log_rotate_wm;
 	uint32_t      log_rotate_sync;
 	uint32_t      two_phase_recover;
-	uint32_t      commit_lsn;
 	srscheme      scheme;
 	srconf       *conf;
 	so           *env;

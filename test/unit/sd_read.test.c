@@ -28,7 +28,7 @@ addv(sdbuild *b, sr *r, uint64_t lsn, uint8_t flags, int *key)
 	sv vv;
 	sv_init(&vv, &sv_vif, v, NULL);
 	sd_buildadd(b, r, &vv, flags & SVDUP);
-	sv_vfree(r, v);
+	sv_vunref(r, v);
 }
 
 static void
@@ -62,7 +62,7 @@ sd_read_gt0(void)
 	t( ss_filenew(&f, "./0000.db") == 0 );
 	t( sd_writeseal(&st_r.r, &f, NULL) == 0 );
 	t( sd_writepage(&st_r.r, &f, NULL, &b) == 0 );
-	t( sd_indexcommit(&index, &st_r.r, &id, f.size) == 0 );
+	t( sd_indexcommit(&index, &st_r.r, &id, NULL, f.size) == 0 );
 	t( sd_writeindex(&st_r.r, &f, NULL, &index) == 0 );
 	t( sd_seal(&st_r.r, &f, NULL, &index, 0) == 0 );
 
@@ -190,7 +190,7 @@ sd_read_gt1(void)
 	sdid id;
 	memset(&id, 0, sizeof(id));
 
-	t( sd_indexcommit(&index, &st_r.r, &id, f.size) == 0 );
+	t( sd_indexcommit(&index, &st_r.r, &id, NULL, f.size) == 0 );
 	t( sd_writeindex(&st_r.r, &f, NULL, &index) == 0 );
 	t( sd_seal(&st_r.r, &f, NULL, &index, 0) == 0 );
 
@@ -283,6 +283,8 @@ sd_read_gt0_compression_zstd(void)
 {
 	ssa a;
 	ss_aopen(&a, &ss_stda);
+	ssa aref;
+	ss_aopen(&aref, &ss_stda);
 	ssvfs vfs;
 	ss_vfsinit(&vfs, &ss_stdvfs);
 	srscheme cmp;
@@ -300,7 +302,7 @@ sd_read_gt0_compression_zstd(void)
 	sr_seqinit(&seq);
 	sscrcf crc = ss_crc32c_function();
 	sr r;
-	sr_init(&r, &error, &a, &vfs, NULL, &seq, SF_KV, SF_SRAW, NULL, &cmp,
+	sr_init(&r, &error, &a, &aref, &vfs, NULL, &seq, SF_KV, SF_SRAW, NULL, &cmp,
 	        &ij, &stat, crc);
 
 	sdbuild b;
@@ -331,7 +333,7 @@ sd_read_gt0_compression_zstd(void)
 	t( ss_filenew(&f, "./0000.db") == 0 );
 	t( sd_writeseal(&r, &f, NULL) == 0 );
 	t( sd_writepage(&r, &f, NULL, &b) == 0 );
-	t( sd_indexcommit(&index, &r, &id, f.size) == 0 );
+	t( sd_indexcommit(&index, &r, &id, NULL, f.size) == 0 );
 	t( sd_writeindex(&r, &f, NULL, &index) == 0 );
 	t( sd_seal(&r, &f, NULL, &index, 0) == 0 );
 
@@ -404,6 +406,8 @@ sd_read_gt0_compression_lz4(void)
 {
 	ssa a;
 	ss_aopen(&a, &ss_stda);
+	ssa aref;
+	ss_aopen(&aref, &ss_stda);
 	ssvfs vfs;
 	ss_vfsinit(&vfs, &ss_stdvfs);
 	srscheme cmp;
@@ -421,7 +425,7 @@ sd_read_gt0_compression_lz4(void)
 	sr_seqinit(&seq);
 	sscrcf crc = ss_crc32c_function();
 	sr r;
-	sr_init(&r, &error, &a, &vfs, NULL, &seq, SF_KV, SF_SRAW, NULL, &cmp, &ij,
+	sr_init(&r, &error, &a, &aref, &vfs, NULL, &seq, SF_KV, SF_SRAW, NULL, &cmp, &ij,
 	        &stat, crc);
 
 	sdbuild b;
@@ -447,14 +451,14 @@ sd_read_gt0_compression_lz4(void)
 	sdid id;
 	memset(&id, 0, sizeof(id));
 
-	t( sd_indexcommit(&index, &r, &id, 0) == 0 );
+	t( sd_indexcommit(&index, &r, &id, NULL, 0) == 0 );
 
 	ssfile f;
 	ss_fileinit(&f, &vfs);
 	t( ss_filenew(&f, "./0000.db") == 0 );
 	t( sd_writeseal(&r, &f, NULL) == 0 );
 	t( sd_writepage(&r, &f, NULL, &b) == 0 );
-	t( sd_indexcommit(&index, &r, &id, f.size) == 0 );
+	t( sd_indexcommit(&index, &r, &id, NULL, f.size) == 0 );
 	t( sd_writeindex(&r, &f, NULL, &index) == 0 );
 	t( sd_seal(&r, &f, NULL, &index, 0) == 0 );
 
@@ -527,6 +531,8 @@ sd_read_gt1_compression_zstd(void)
 {
 	ssa a;
 	ss_aopen(&a, &ss_stda);
+	ssa aref;
+	ss_aopen(&aref, &ss_stda);
 	ssvfs vfs;
 	ss_vfsinit(&vfs, &ss_stdvfs);
 	srscheme cmp;
@@ -544,7 +550,7 @@ sd_read_gt1_compression_zstd(void)
 	sr_seqinit(&seq);
 	sscrcf crc = ss_crc32c_function();
 	sr r;
-	sr_init(&r, &error, &a, &vfs, NULL, &seq, SF_KV, SF_SRAW, NULL, &cmp,
+	sr_init(&r, &error, &a, &aref, &vfs, NULL, &seq, SF_KV, SF_SRAW, NULL, &cmp,
 	        &ij, &stat, crc);
 
 	ssfile f;
@@ -609,7 +615,7 @@ sd_read_gt1_compression_zstd(void)
 
 	sdid id;
 	memset(&id, 0, sizeof(id));
-	t( sd_indexcommit(&index, &r, &id, f.size) == 0 );
+	t( sd_indexcommit(&index, &r, &id, NULL, f.size) == 0 );
 
 	t( sd_writeindex(&r, &f, NULL, &index) == 0 );
 	t( sd_seal(&r, &f, NULL, &index, 0) == 0 );
@@ -704,6 +710,8 @@ sd_read_gt1_compression_lz4(void)
 {
 	ssa a;
 	ss_aopen(&a, &ss_stda);
+	ssa aref;
+	ss_aopen(&aref, &ss_stda);
 	ssvfs vfs;
 	ss_vfsinit(&vfs, &ss_stdvfs);
 	srscheme cmp;
@@ -721,7 +729,7 @@ sd_read_gt1_compression_lz4(void)
 	sr_seqinit(&seq);
 	sscrcf crc = ss_crc32c_function();
 	sr r;
-	sr_init(&r, &error, &a, &vfs, NULL, &seq, SF_KV, SF_SRAW, NULL, &cmp,
+	sr_init(&r, &error, &a, &aref, &vfs, NULL, &seq, SF_KV, SF_SRAW, NULL, &cmp,
 	        &ij, &stat, crc);
 
 	ssfile f;
@@ -786,7 +794,7 @@ sd_read_gt1_compression_lz4(void)
 
 	sdid id;
 	memset(&id, 0, sizeof(id));
-	t( sd_indexcommit(&index, &r, &id, f.size) == 0 );
+	t( sd_indexcommit(&index, &r, &id, NULL, f.size) == 0 );
 
 	t( sd_writeindex(&r, &f, NULL, &index) == 0 );
 	t( sd_seal(&r, &f, NULL, &index, 0) == 0 );
