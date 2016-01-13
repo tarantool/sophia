@@ -411,7 +411,7 @@ se_dbwrite(sedb *db, sev *o, uint8_t flags)
 
 	/* single-statement transaction */
 	sx t;
-	sx_begin(&e->xm, &t, SXRW, 0);
+	sx_begin(&e->xm, &t, SXRW, UINT64_MAX);
 	rc = sx_set(&t, &db->coindex, v);
 	if (ssunlikely(rc == -1)) {
 		ss_quota(&e->quota, SS_QREMOVE, sv_vsize(v));
