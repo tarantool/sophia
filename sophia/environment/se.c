@@ -243,7 +243,13 @@ so *se_new(void)
 	ss_aopen(&e->a_tx, &ss_slaba, &e->pager, sizeof(setx));
 	ss_aopen(&e->a_req, &ss_slaba, &e->pager, sizeof(sereq));
 	ss_aopen(&e->a_sxv, &ss_slaba, &e->pager, sizeof(sxv));
-	se_metainit(&e->meta, &e->o);
+	rc = se_metainit(&e->meta, &e->o);
+	if (ssunlikely(rc == -1)) {
+		se_statusfree(&e->status);
+		ss_pagerfree(&e->pager);
+		free(e);
+		return NULL;
+    }
 	so_listinit(&e->db);
 	so_listinit(&e->db_shutdown);
 	so_listinit(&e->cursor);
