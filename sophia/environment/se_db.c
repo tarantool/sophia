@@ -313,6 +313,8 @@ se_dbread(sedb *db, sev *o, sx *x, int x_search,
 	} else {
 		sx_getstmt(&e->xm, &db->coindex);
 	}
+	if (ssunlikely(order == SS_EQ && v == NULL))
+		order = SS_GTE;
 
 	/* prepare read cache */
 	int cachegc = 0;
