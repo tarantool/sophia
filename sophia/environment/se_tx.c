@@ -227,7 +227,7 @@ se_txcommit(so *o)
 	if (t->lsn >= 0)
 		arg->lsn = t->lsn;
 	if (ssunlikely(recover)) {
-		arg->recover = 1;
+		arg->recover = (e->conf.recover == 3) ? 2: 1;
 		arg->vlsn_generate = 0;
 		arg->vlsn = sr_seq(e->r.seq, SR_LSN);
 	} else {
@@ -235,6 +235,8 @@ se_txcommit(so *o)
 		arg->vlsn = 0;
 	}
 	se_execute_write(&q);
+	if (ssunlikely(q.rc == -1))
+		sx_rollback(&t->t);
 	se_txend(t, 0, 0);
 	return q.rc;
 }

@@ -23,13 +23,29 @@ static int
 se_open(so *o)
 {
 	se *e = se_cast(o, se*, SE);
+	/* recover phases */
 	int status = se_status(&e->status);
-	if (status == SE_RECOVER) {
-		assert(e->conf.two_phase_recover == 1);
-		goto online;
+	switch (e->conf.recover) {
+	case SE_RECOVER_1P: break;
+	case SE_RECOVER_2P:
+		if (status == SE_RECOVER)
+			goto online;
+		break;
+	case SE_RECOVER_NP:
+		if (status == SE_RECOVER) {
+			se_statusset(&e->status, SE_ONLINE);
+			return 0;
+		}
+		if (status == SE_ONLINE) {
+			se_statusset(&e->status, SE_RECOVER);
+			return 0;
+		}
+		break;
 	}
 	if (status != SE_OFFLINE)
 		return -1;
+
+	/* validate configuration */
 	int rc;
 	rc = se_confvalidate(&e->conf);
 	if (ssunlikely(rc == -1))
@@ -56,7 +72,7 @@ se_open(so *o)
 	rc = se_recover(e);
 	if (ssunlikely(rc == -1))
 		return -1;
-	if (e->conf.two_phase_recover)
+	if (e->conf.recover == SE_RECOVER_2P)
 		return 0;
 
 online:
@@ -135,7 +151,6 @@ se_destroy(so *o)
 	sr_statfree(&e->stat);
 	sr_seqfree(&e->seq);
 	ss_pagerfree(&e->pager);
-	ss_pagerfree(&e->pager_ref);
 	se_statusfree(&e->status);
 	se_mark_destroyed(&e->o);
 	free(e);
@@ -228,10 +243,6 @@ so *se_new(void)
 	se_statusset(&e->status, SE_OFFLINE);
 	ss_vfsinit(&e->vfs, &ss_stdvfs);
 	ss_pagerinit(&e->pager, &e->vfs, 10, 8192);
-	ss_pagerinit(&e->pager_ref, &e->vfs, 1, sizeof(svref) * 100000);
-	int rc = ss_pageradd(&e->pager);
-	if (ssunlikely(rc == -1))
-		goto error;
 	ss_aopen(&e->a, &ss_stda);
 	ss_aopen(&e->a_ref, &ss_stda);
 	/*ss_aopen(&e->a_ref, &ss_slaba_lock, &e->pager_ref, sizeof(svref));*/
@@ -247,6 +258,7 @@ so *se_new(void)
 	ss_aopen(&e->a_tx, &ss_slaba, &e->pager, sizeof(setx));
 	ss_aopen(&e->a_req, &ss_slaba, &e->pager, sizeof(sereq));
 	ss_aopen(&e->a_sxv, &ss_slaba, &e->pager, sizeof(sxv));
+	int rc;
 	rc = se_confinit(&e->conf, &e->o);
 	if (ssunlikely(rc == -1))
 		goto error;
@@ -281,7 +293,6 @@ so *se_new(void)
 error:
 	se_statusfree(&e->status);
 	ss_pagerfree(&e->pager);
-	ss_pagerfree(&e->pager_ref);
 	free(e);
 	return NULL;
 }
