@@ -1,12 +1,9 @@
-
-<p align="center">
-	<a href="http://sphia.org"><img src="http://sphia.org/sophia.png" /></a>
-</p>
 <br>
 <p align="center">
-	<a href="http://sphia.org">sophia</a> - a modern embeddable transactional key-value storage
+	<a href="http://sphia.org"><img src="http://sophia.systems/sophia.png" /></a><br>
+	<a href="http://sphia.org"><img src="http://sophia.systems/logo_title.png" /></a>
+	<br>
 	<br>
 	(Tarantool integration fork)
 	<br>
 </p>
-<br>
