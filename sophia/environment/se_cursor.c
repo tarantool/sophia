@@ -17,10 +17,11 @@
 #include <libsi.h>
 #include <libsx.h>
 #include <libsy.h>
+#include <libsc.h>
 #include <libse.h>
 
 static int
-se_cursordestroy(so *o)
+se_cursordestroy(so *o, int fe ssunused)
 {
 	secursor *c = se_cast(o, secursor*, SECURSOR);
 	se *e = se_of(&c->o);
@@ -79,6 +80,7 @@ se_cursorset_int(so *o, const char *path, int64_t v)
 static soif secursorif =
 {
 	.open         = NULL,
+	.close        = NULL,
 	.destroy      = se_cursordestroy,
 	.error        = NULL,
 	.document     = NULL,

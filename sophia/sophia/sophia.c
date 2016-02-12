@@ -17,6 +17,7 @@
 #include <libsi.h>
 #include <libsx.h>
 #include <libsy.h>
+#include <libsc.h>
 #include <libse.h>
 #include <libsp.h>
 
@@ -77,6 +78,20 @@ SP_API int sp_open(void *ptr)
 	return rc;
 }
 
+SP_API int sp_close(void *ptr)
+{
+	so *o = sp_cast(ptr, __func__);
+	if (ssunlikely(o->i->close == NULL)) {
+		sp_unsupported(o, __func__);
+		return -1;
+	}
+	so *e = o->env;
+	se_apilock(e);
+	int rc = o->i->close(o);
+	se_apiunlock(e);
+	return rc;
+}
+
 SP_API int sp_drop(void *ptr)
 {
 	so *o = sp_cast(ptr, __func__);
@@ -101,11 +116,11 @@ SP_API int sp_destroy(void *ptr)
 	so *e = o->env;
 	int rc;
 	if (ssunlikely(e == o)) {
-		rc = o->i->destroy(o);
+		rc = o->i->destroy(o, 1);
 		return rc;
 	}
 	se_apilock(e);
-	rc = o->i->destroy(o);
+	rc = o->i->destroy(o, 1);
 	se_apiunlock(e);
 	return rc;
 }
@@ -127,7 +142,7 @@ SP_API int sp_error(void *ptr)
 SP_API int sp_service(void *ptr)
 {
 	so *o = sp_cast(ptr, __func__);
-	return se_scheduler_call(o->env);
+	return se_service(o->env);
 }
 
 SP_API void *sp_poll(void *ptr)
