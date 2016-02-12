@@ -17,10 +17,11 @@
 #include <libsi.h>
 #include <libsx.h>
 #include <libsy.h>
+#include <libsc.h>
 #include <libse.h>
 
 static int
-se_viewdb_destroy(so *o)
+se_viewdb_destroy(so *o, int fe ssunused)
 {
 	seviewdb *c = se_cast(o, seviewdb*, SEDBCURSOR);
 	se *e = se_of(&c->o);
@@ -54,6 +55,7 @@ se_viewdb_get(so *o, so *v ssunused)
 static soif seviewdbif =
 {
 	.open         = NULL,
+	.close        = NULL,
 	.destroy      = se_viewdb_destroy,
 	.error        = NULL,
 	.document     = NULL,
@@ -82,25 +84,15 @@ se_viewdb_open(seviewdb *c)
 	sslist *i;
 	ss_listforeach(&e->db.list, i) {
 		sedb *db = (sedb*)sscast(i, so, link);
-		int status = se_status(&db->status);
-		if (status != SE_ONLINE)
+		int status = sr_status(&db->index.status);
+		if (status != SR_ONLINE)
 			continue;
-		if (c->txn_id > db->txn_min) {
+		if (se_dbvisible(db, c->txn_id)) {
 			rc = ss_bufadd(&c->list, &e->a, &db, sizeof(db));
 			if (ssunlikely(rc == -1))
 				return -1;
 		}
 	}
-	ss_spinlock(&e->dblock);
-	ss_listforeach(&e->db_shutdown.list, i) {
-		sedb *db = (sedb*)sscast(i, so, link);
-		if (db->txn_min < c->txn_id && c->txn_id <= db->txn_max) {
-			rc = ss_bufadd(&c->list, &e->a, &db, sizeof(db));
-			if (ssunlikely(rc == -1))
-				return -1;
-		}
-	}
-	ss_spinunlock(&e->dblock);
 	if (ss_bufsize(&c->list) == 0)
 		return 0;
 	c->ready = 1;
@@ -125,7 +117,7 @@ so *se_viewdb_new(se *e, uint64_t txn_id)
 	ss_bufinit(&c->list);
 	int rc = se_viewdb_open(c);
 	if (ssunlikely(rc == -1)) {
-		so_destroy(&c->o);
+		so_destroy(&c->o, 1);
 		sr_oom(&e->error);
 		return NULL;
 	}

@@ -13,20 +13,13 @@ typedef struct se se;
 
 struct se {
 	so          o;
-	sestatus    status;
+	srstatus    status;
 	ssmutex     apilock;
-	ssmutex     reqlock;
-	sscond      reqcond;
-	ssspinlock  dblock;
 	solist      db;
-	solist      db_shutdown;
 	solist      cursor;
 	solist      viewdb;
 	solist      view;
 	solist      tx;
-	solist      req;
-	solist      reqactive;
-	solist      reqready;
 	solist      confcursor;
 	srseq       seq;
 	seconf      conf;
@@ -36,7 +29,6 @@ struct se {
 	ssa         a_oom;
 	ssa         a;
 	ssa         a_ref;
-	ssa         a_db;
 	ssa         a_document;
 	ssa         a_cursor;
 	ssa         a_viewdb;
@@ -47,14 +39,13 @@ struct se {
 	ssa         a_confkv;
 	ssa         a_tx;
 	ssa         a_sxv;
-	ssa         a_req;
 	sicachepool cachepool;
 	syconf      repconf;
 	sy          rep;
 	slconf      lpconf;
 	slpool      lp;
 	sxmanager   xm;
-	sescheduler sched;
+	sc          scheduler;
 	srerror     error;
 	srstat      stat;
 	ssinjection ei;
@@ -63,7 +54,7 @@ struct se {
 
 static inline int
 se_active(se *e) {
-	return se_statusactive(&e->status);
+	return sr_statusactive(&e->status);
 }
 
 static inline void
@@ -80,6 +71,8 @@ static inline se *se_of(so *o) {
 	return (se*)o->env;
 }
 
-so *se_new(void);
+so  *se_new(void);
+int  se_service_threads(se*, int);
+int  se_service(so*);
 
 #endif

@@ -54,7 +54,7 @@ int si_plannerfree(siplanner *p, ssa *a)
 	return 0;
 }
 
-int si_plannertrace(siplan *p, sstrace *t)
+int si_plannertrace(siplan *p, uint32_t id, sstrace *t)
 {
 	char *plan = NULL;
 	switch (p->plan) {
@@ -101,11 +101,11 @@ int si_plannertrace(siplan *p, sstrace *t)
 		break;
 	}
 	if (p->node) {
-		ss_trace(t, "%s <#%" PRIu32 " explain: %s>",
-		         plan,
-		         p->node->self.id.id, explain);
+		ss_trace(t, "%s <%" PRIu32 ":%020" PRIu32 ".db explain: %s>",
+		         plan, id, p->node->self.id.id, explain);
 	} else {
-		ss_trace(t, "%s <explain: %s>", plan, explain);
+		ss_trace(t, "%s <%" PRIu32 " explain: %s>",
+		         plan, id, explain);
 	}
 	return 0;
 }
@@ -421,6 +421,27 @@ match:
 	return 1;
 }
 
+static inline int
+si_plannerpeek_shutdown(siplanner *p, siplan *plan)
+{
+	si *index = p->i;
+	if (ssunlikely(index->shutdown))
+		return 0;
+	int status = sr_status(&index->status);
+	int is_drop = (status == SR_DROP);
+	int shutdown_pending =
+		(status == SR_SHUTDOWN) || is_drop;
+	if (ssunlikely(shutdown_pending)) {
+		if (si_refs(index) > 0)
+			return 2;
+		index->shutdown = 1;
+		if (is_drop)
+			plan->plan = SI_DROP;
+		return 1;
+	}
+	return 0;
+}
+
 int si_planner(siplanner *p, siplan *plan)
 {
 	switch (plan->plan) {
@@ -445,6 +466,9 @@ int si_planner(siplanner *p, siplan *plan)
 		return si_plannerpeek_anticache(p, plan);
 	case SI_LRU:
 		return si_plannerpeek_lru(p, plan);
+	case SI_SHUTDOWN:
+	case SI_DROP:
+		return si_plannerpeek_shutdown(p, plan);
 	}
 	return -1;
 }
