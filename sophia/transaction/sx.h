@@ -45,7 +45,7 @@ struct sx {
 	uint64_t   vlsn;
 	uint64_t   csn;
 	int        log_read;
-	svlog      log;
+	svlog     *log;
 	sslist     deadlock;
 	ssrbnode   node;
 	sxmanager *manager;
@@ -60,18 +60,18 @@ struct sxmanager {
 	uint32_t    count_gc;
 	uint64_t    csn;
 	sxv        *gc;
-	ssa        *asxv;
+	sxvpool     pool;
 	sr         *r;
 };
 
-int       sx_managerinit(sxmanager*, sr*, ssa*);
+int       sx_managerinit(sxmanager*, sr*);
 int       sx_managerfree(sxmanager*);
 int       sx_indexinit(sxindex*, sxmanager*, sr*, so*, void*);
 int       sx_indexset(sxindex*, uint32_t);
 int       sx_indexfree(sxindex*, sxmanager*);
 sx       *sx_find(sxmanager*, uint64_t);
-void      sx_init(sxmanager*, sx*);
-sxstate   sx_begin(sxmanager*, sx*, sxtype, uint64_t);
+void      sx_init(sxmanager*, sx*, svlog*);
+sxstate   sx_begin(sxmanager*, sx*, sxtype, svlog*, uint64_t);
 void      sx_gc(sx*);
 sxstate   sx_prepare(sx*, sxpreparef, void*);
 sxstate   sx_commit(sx*);
@@ -81,7 +81,7 @@ int       sx_get(sx*, sxindex*, sv*, sv*);
 uint64_t  sx_min(sxmanager*);
 uint64_t  sx_max(sxmanager*);
 uint64_t  sx_vlsn(sxmanager*);
-sxstate   sx_set_autocommit(sxmanager*, sxindex*, sx*, svv*);
+sxstate   sx_set_autocommit(sxmanager*, sxindex*, sx*, svlog*, svv*);
 sxstate   sx_get_autocommit(sxmanager*, sxindex*);
 
 #endif
