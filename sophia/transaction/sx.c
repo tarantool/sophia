@@ -19,7 +19,7 @@ sx_count(sxmanager *m) {
 	return m->count_rd + m->count_rw;
 }
 
-int sx_managerinit(sxmanager *m, sr *r, ssa *asxv)
+int sx_managerinit(sxmanager *m, sr *r)
 {
 	ss_rbinit(&m->i);
 	m->count_rd = 0;
@@ -29,14 +29,15 @@ int sx_managerinit(sxmanager *m, sr *r, ssa *asxv)
 	m->gc  = NULL;
 	ss_spinlockinit(&m->lock);
 	ss_listinit(&m->indexes);
+	sx_vpool_init(&m->pool, r);
 	m->r = r;
-	m->asxv = asxv;
 	return 0;
 }
 
 int sx_managerfree(sxmanager *m)
 {
 	assert(sx_count(m) == 0);
+	sx_vpool_free(&m->pool);
 	ss_spinlockfree(&m->lock);
 	return 0;
 }
@@ -59,17 +60,14 @@ int sx_indexset(sxindex *i, uint32_t dsn)
 	return 0;
 }
 
-ss_rbtruncate(sx_truncate,
-              sx_vfreeall(((sr** )arg)[0],
-                          ((ssa**)arg)[1], sscast(n, sxv, node)))
+ss_rbtruncate(sx_truncate, sx_vfreeall(arg, sscast(n, sxv, node)))
 
 static inline void
 sx_indextruncate(sxindex *i, sxmanager *m)
 {
 	if (i->i.root == NULL)
 		return;
-	void *argv[2] = { m->r, m->asxv };
-	sx_truncate(i->i.root, argv);
+	sx_truncate(i->i.root, &m->pool);
 	ss_rbinit(&i->i);
 }
 
@@ -132,10 +130,10 @@ sx *sx_find(sxmanager *m, uint64_t id)
 	return NULL;
 }
 
-void sx_init(sxmanager *m, sx *x)
+void sx_init(sxmanager *m, sx *x, svlog *log)
 {
 	x->manager = m;
-	sv_loginit(&x->log);
+	x->log = log;
 	ss_listinit(&x->deadlock);
 }
 
@@ -146,7 +144,7 @@ sx_promote(sx *x, sxstate state)
 	return state;
 }
 
-sxstate sx_begin(sxmanager *m, sx *x, sxtype type, uint64_t vlsn)
+sxstate sx_begin(sxmanager *m, sx *x, sxtype type, svlog *log, uint64_t vlsn)
 {
 	sx_promote(x, SXREADY);
 	x->type = type;
@@ -159,7 +157,7 @@ sxstate sx_begin(sxmanager *m, sx *x, sxtype type, uint64_t vlsn)
 	else
 		x->vlsn = vlsn;
 	sr_sequnlock(m->r->seq);
-	sx_init(m, x);
+	sx_init(m, x, log);
 	ss_spinlock(&m->lock);
 	ssrbnode *n = NULL;
 	int rc = sx_matchtx(&m->i, NULL, (char*)&x->id, sizeof(x->id), &n);
@@ -229,7 +227,7 @@ sx_garbage_collect(sxmanager *m)
 			continue;
 		}
 		sx_untrack(v);
-		sx_vfree(m->r, m->asxv, v);
+		sx_vfree(&m->pool, v);
 	}
 	m->count_gc = count;
 	m->gc = gc;
@@ -239,7 +237,7 @@ void sx_gc(sx *x)
 {
 	sxmanager *m = x->manager;
 	sx_promote(x, SXUNDEF);
-	sv_logfree(&x->log, m->r->a);
+	x->log = NULL;
 	if (m->count_gc == 0)
 		return;
 	sx_garbage_collect(m);
@@ -273,10 +271,11 @@ sx_rollback_svp(sx *x, ssiter *i, int free)
 		/* translate log version from sxv to svv */
 		sv_init(&lv->v, &sv_vif, v->v, NULL);
 		if (free) {
-			if (sslikely(! (v->v->flags & SVGET)))
-				gc += sv_vsize((svv*)v->v);
-			sx_vfree(m->r, m->asxv, v);
+			int size = sv_vsize((svv*)v->v);
+			if (sv_vunref(m->r, v->v))
+				gc += size;
 		}
+		sx_vpool_push(&m->pool, v);
 	}
 	ss_quota(m->r->quota, SS_QREMOVE, gc);
 }
@@ -286,7 +285,7 @@ sxstate sx_rollback(sx *x)
 	sxmanager *m = x->manager;
 	ssiter i;
 	ss_iterinit(ss_bufiter, &i);
-	ss_iteropen(ss_bufiter, &i, &x->log.buf, sizeof(svlogv));
+	ss_iteropen(ss_bufiter, &i, &x->log->buf, sizeof(svlogv));
 	/* support log free after commit and half-commit mode */
 	if (x->state == SXCOMMIT) {
 		int gc = 0;
@@ -312,11 +311,11 @@ sxstate sx_prepare(sx *x, sxpreparef prepare, void *arg)
 {
 	uint64_t lsn = sr_seq(x->manager->r->seq, SR_LSN);
 	/* proceed read-only transactions */
-	if (x->type == SXRO || sv_logcount_write(&x->log) == 0)
+	if (x->type == SXRO || sv_logcount_write(x->log) == 0)
 		return sx_promote(x, SXPREPARE);
 	ssiter i;
 	ss_iterinit(ss_bufiter, &i);
-	ss_iteropen(ss_bufiter, &i, &x->log.buf, sizeof(svlogv));
+	ss_iteropen(ss_bufiter, &i, &x->log->buf, sizeof(svlogv));
 	for (; ss_iterhas(ss_bufiter, &i); ss_iternext(ss_bufiter, &i))
 	{
 		svlogv *lv = ss_iterof(ss_bufiter, &i);
@@ -353,7 +352,7 @@ sxstate sx_commit(sx *x)
 	sxmanager *m = x->manager;
 	ssiter i;
 	ss_iterinit(ss_bufiter, &i);
-	ss_iteropen(ss_bufiter, &i, &x->log.buf, sizeof(svlogv));
+	ss_iteropen(ss_bufiter, &i, &x->log->buf, sizeof(svlogv));
 	uint64_t csn = ++m->csn;
 	for (; ss_iterhas(ss_bufiter, &i); ss_iternext(ss_bufiter, &i))
 	{
@@ -380,7 +379,7 @@ sxstate sx_commit(sx *x)
 			m->count_gc++;
 		} else {
 			sx_untrack(v);
-			ss_free(m->asxv, v);
+			sx_vpool_push(&m->pool, v);
 		}
 	}
 
@@ -405,7 +404,7 @@ int sx_set(sx *x, sxindex *index, svv *version)
 		x->log_read = -1;
 	}
 	/* allocate mvcc container */
-	sxv *v = sx_valloc(m->asxv, version);
+	sxv *v = sx_valloc(&m->pool, version);
 	if (ssunlikely(v == NULL)) {
 		ss_quota(r->quota, SS_QREMOVE, sv_vsize(version));
 		sv_vunref(r, version);
@@ -428,8 +427,8 @@ int sx_set(sx *x, sxindex *index, svv *version)
 	} else {
 		int pos = rc;
 		/* unique */
-		v->lo = sv_logcount(&x->log);
-		rc = sv_logadd(&x->log, r->a, &lv, index->ptr);
+		v->lo = sv_logcount(x->log);
+		rc = sv_logadd(x->log, r->a, &lv, index->ptr);
 		if (ssunlikely(rc == -1)) {
 			sr_oom(r->e);
 			goto error;
@@ -449,7 +448,7 @@ int sx_set(sx *x, sxindex *index, svv *version)
 			goto error;
 		}
 		/* replace old document with the new one */
-		lv.next = sv_logat(&x->log, own->lo)->next;
+		lv.next = sv_logat(x->log, own->lo)->next;
 		v->lo = own->lo;
 		if (ssunlikely(sx_vaborted(own)))
 			sx_vabort(v);
@@ -457,15 +456,15 @@ int sx_set(sx *x, sxindex *index, svv *version)
 		if (sslikely(head == own))
 			ss_rbreplace(&index->i, &own->node, &v->node);
 		/* update log */
-		sv_logreplace(&x->log, v->lo, &lv);
+		sv_logreplace(x->log, v->lo, &lv);
 
 		ss_quota(r->quota, SS_QREMOVE, sv_vsize(own->v));
-		sx_vfree(r, m->asxv, own);
+		sx_vfree(&m->pool, own);
 		return 0;
 	}
 	/* update log */
-	v->lo = sv_logcount(&x->log);
-	rc = sv_logadd(&x->log, r->a, &lv, index->ptr);
+	v->lo = sv_logcount(x->log);
+	rc = sv_logadd(x->log, r->a, &lv, index->ptr);
 	if (ssunlikely(rc == -1)) {
 		sr_oom(r->e);
 		goto error;
@@ -475,7 +474,7 @@ int sx_set(sx *x, sxindex *index, svv *version)
 	return 0;
 error:
 	ss_quota(r->quota, SS_QREMOVE, sv_vsize(v->v));
-	sx_vfree(r, m->asxv, v);
+	sx_vfree(&m->pool, v);
 	return -1;
 }
 
@@ -508,11 +507,12 @@ int sx_get(sx *x, sxindex *index, sv *key, sv *result)
 		rc = 1;
 	}
 	return rc;
+
 add:
 	/* track a start of the latest read sequence in the
 	 * transactional log */
 	if (x->log_read == -1)
-		x->log_read = sv_logcount(&x->log);
+		x->log_read = sv_logcount(x->log);
 	rc = sx_set(x, index, key->v);
 	if (ssunlikely(rc == -1))
 		return -1;
@@ -520,20 +520,20 @@ add:
 	return 0;
 }
 
-sxstate sx_set_autocommit(sxmanager *m, sxindex *index, sx *x, svv *v)
+sxstate sx_set_autocommit(sxmanager *m, sxindex *index, sx *x, svlog *log, svv *v)
 {
 	if (sslikely(m->count_rw == 0)) {
-		sx_init(m, x);
+		sx_init(m, x, log);
 		svlogv lv;
 		lv.id   = index->dsn;
 		lv.next = UINT32_MAX;
 		sv_init(&lv.v, &sv_vif, v, NULL);
-		sv_logadd(&x->log, m->r->a, &lv, index->ptr);
+		sv_logadd(x->log, m->r->a, &lv, index->ptr);
 		sr_seq(m->r->seq, SR_TSNNEXT);
 		sx_promote(x, SXCOMMIT);
 		return SXCOMMIT;
 	}
-	sx_begin(m, x, SXRW, 0);
+	sx_begin(m, x, SXRW, log, 0);
 	int rc = sx_set(x, index, v);
 	if (ssunlikely(rc == -1)) {
 		sx_rollback(x);

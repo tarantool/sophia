@@ -293,8 +293,7 @@ shutdown:;
 	if (ssunlikely(rc == -1))
 		rcret = -1;
 	si_schemefree(&db->scheme, &db->r);
-	sd_cfree(&db->dc, &db->r);
-	se_mark_destroyed(&db->o);
+	so_mark_destroyed(&db->o);
 	ss_free(&e->a, db);
 	return rcret;
 }
@@ -560,8 +559,10 @@ se_dbwrite(sedb *db, sedocument *o, uint8_t flags)
 	ss_quota(&e->quota, SS_QADD, sv_vsize(v));
 
 	/* single-statement transaction */
+	svlog log;
+	sv_loginit(&log);
 	sx x;
-	sxstate state = sx_set_autocommit(&e->xm, &db->coindex, &x, v);
+	sxstate state = sx_set_autocommit(&e->xm, &db->coindex, &x, &log, v);
 	switch (state) {
 	case SXLOCK: return 2;
 	case SXROLLBACK: return 1;
@@ -569,7 +570,7 @@ se_dbwrite(sedb *db, sedocument *o, uint8_t flags)
 	}
 
 	/* write wal and index */
-	rc = sc_write(&e->scheduler, &x.log, 0, 0);
+	rc = sc_write(&e->scheduler, &log, 0, 0);
 	if (ssunlikely(rc == -1))
 		sx_rollback(&x);
 
@@ -666,6 +667,7 @@ static soif sedbif =
 	.open         = se_dbopen,
 	.close        = se_dbclose,
 	.destroy      = se_dbdestroy,
+	.free         = NULL,
 	.error        = NULL,
 	.document     = se_dbdocument,
 	.poll         = NULL,
@@ -713,7 +715,6 @@ so *se_dbnew(se *e, char *name)
 	sx_indexinit(&o->coindex, &e->xm, &o->r, &o->o, &o->index);
 	o->txn_min = sx_min(&e->xm);
 	o->txn_max = UINT32_MAX;
-	sd_cinit(&o->dc);
 	return &o->o;
 }
 
