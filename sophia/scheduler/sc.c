@@ -47,7 +47,6 @@ int sc_init(sc *s, sr *r, sstrigger *on_event, slpool *lp)
 	s->lru                      = 0;
 	s->lru_time                 = now;
 	s->rotate                   = 0;
-	s->read                     = 0;
 	s->i                        = NULL;
 	s->count                    = 0;
 	s->rr                       = 0;
@@ -57,8 +56,8 @@ int sc_init(sc *s, sr *r, sstrigger *on_event, slpool *lp)
 	s->lp                       = lp;
 	ss_threadpool_init(&s->tp);
 	sc_workerpool_init(&s->wp);
-	sc_readpool_init(&s->rp, r);
-	so_listinit(&s->shutdown);
+	ss_listinit(&s->shutdown);
+	s->shutdown_pending = 0;
 	return 0;
 }
 
@@ -77,7 +76,6 @@ int sc_create(sc *s, ssthreadf function, void *arg, int n)
 int sc_shutdown(sc *s)
 {
 	sr *r = s->r;
-	sc_readpool_wakeup(&s->rp);
 	int rcret = 0;
 	int rc = ss_threadpool_shutdown(&s->tp, r->a);
 	if (ssunlikely(rc == -1))
@@ -85,14 +83,14 @@ int sc_shutdown(sc *s)
 	rc = sc_workerpool_free(&s->wp, r);
 	if (ssunlikely(rc == -1))
 		rcret = -1;
-	sc_readpool_free(&s->rp);
 	/* destroy databases which are ready for
 	 * shutdown or drop */
 	sslist *p, *n;
-	ss_listforeach_safe(&s->shutdown.list, p, n) {
-		so *o = sscast(p, so, link);
-		si *index = sscast(o, si, link);
-		so_destroy(index->object, 0);
+	ss_listforeach_safe(&s->shutdown, p, n) {
+		si *index = sscast(p, si, link);
+		rc = si_close(index);
+		if (ssunlikely(rc == -1))
+			rcret = -1;
 	}
 	if (s->i) {
 		int j = 0;
@@ -107,14 +105,13 @@ int sc_shutdown(sc *s)
 	return rcret;
 }
 
-int sc_add(sc *s, so *dbo, si *index)
+int sc_add(sc *s, si *index)
 {
 	scdb *db = ss_malloc(s->r->a, sizeof(scdb));
 	if (ssunlikely(db == NULL)) {
 		ss_mutexunlock(&s->lock);
 		return -1;
 	}
-	db->db = dbo;
 	db->index = index;
 	memset(db->workers, 0, sizeof(db->workers));
 
@@ -137,7 +134,7 @@ int sc_add(sc *s, so *dbo, si *index)
 	return 0;
 }
 
-int sc_del(sc *s, so *dbo, int lock)
+int sc_del(sc *s, si *index, int lock)
 {
 	if (ssunlikely(s->i == NULL))
 		return 0;
@@ -161,7 +158,7 @@ int sc_del(sc *s, so *dbo, int lock)
 	int j = 0;
 	int k = 0;
 	while (j < s->count) {
-		if (s->i[j]->db == dbo) {
+		if (s->i[j]->index == index) {
 			db = s->i[j];
 			j++;
 			continue;

@@ -18,16 +18,16 @@
 static inline int
 si_backupend(si *index, sdc *c, siplan *plan)
 {
-	sr *r = index->r;
+	sr *r = &index->r;
 	/* copy index scheme file */
 	char src[PATH_MAX];
-	snprintf(src, sizeof(src), "%s/scheme", index->scheme->path);
+	snprintf(src, sizeof(src), "%s/scheme", index->scheme.path);
 
 	char dst[PATH_MAX];
 	snprintf(dst, sizeof(dst), "%s/%" PRIu32 ".incomplete/%s/scheme",
-	         index->scheme->path_backup,
+	         index->scheme.path_backup,
 	         (uint32_t)plan->a,
-	         index->scheme->name);
+	         index->scheme.name);
 
 	/* prepare buffer */
 	ssize_t size = ss_vfssize(r->vfs, src);
@@ -90,16 +90,16 @@ si_backupend(si *index, sdc *c, siplan *plan)
 
 int si_backup(si *index, sdc *c, siplan *plan)
 {
-	sr *r = index->r;
+	sr *r = &index->r;
 	if (ssunlikely(plan->plan == SI_BACKUPEND))
 		return si_backupend(index, c, plan);
 
 	sinode *node = plan->node;
 	char dst[PATH_MAX];
 	snprintf(dst, sizeof(dst), "%s/%" PRIu32 ".incomplete/%s",
-	         index->scheme->path_backup,
+	         index->scheme.path_backup,
 	         (uint32_t)plan->a,
-	         index->scheme->name);
+	         index->scheme.name);
 
 	/* read origin file */
 	int rc = si_noderead(node, r, &c->c);

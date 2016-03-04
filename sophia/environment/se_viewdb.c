@@ -30,7 +30,7 @@ se_viewdb_free(so *o)
 }
 
 static int
-se_viewdb_destroy(so *o, int fe ssunused)
+se_viewdb_destroy(so *o)
 {
 	seviewdb *c = se_cast(o, seviewdb*, SEDBCURSOR);
 	se *e = se_of(&c->o);
@@ -93,7 +93,7 @@ se_viewdb_open(seviewdb *c)
 	sslist *i;
 	ss_listforeach(&e->db.list, i) {
 		sedb *db = (sedb*)sscast(i, so, link);
-		int status = sr_status(&db->index.status);
+		int status = sr_status(&db->index->status);
 		if (status != SR_ONLINE)
 			continue;
 		if (se_dbvisible(db, c->txn_id)) {

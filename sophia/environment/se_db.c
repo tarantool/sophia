@@ -25,10 +25,10 @@ se_dbscheme_init(sedb *db, char *name)
 {
 	se *e = se_of(&db->o);
 	/* prepare index scheme */
-	sischeme *scheme = &db->scheme;
+	sischeme *scheme = db->scheme;
 	scheme->name = ss_strdup(&e->a, name);
 	if (ssunlikely(scheme->name == NULL))
-		goto e0;
+		goto error;
 	scheme->id                    = sr_seq(&e->seq, SR_DSNNEXT);
 	scheme->sync                  = 2;
 	scheme->mmap                  = 0;
@@ -54,33 +54,31 @@ se_dbscheme_init(sedb *db, char *name)
 	scheme->buf_gc_wm             = 1024 * 1024;
 	scheme->storage_sz = ss_strdup(&e->a, "cache");
 	if (ssunlikely(scheme->storage_sz == NULL))
-		goto e1;
+		goto error;
 	scheme->compression_sz =
 		ss_strdup(&e->a, scheme->compression_if->name);
 	if (ssunlikely(scheme->compression_sz == NULL))
-		goto e1;
+		goto error;
 	scheme->compression_branch_sz =
 		ss_strdup(&e->a, scheme->compression_branch_if->name);
 	if (ssunlikely(scheme->compression_branch_sz == NULL))
-		goto e1;
+		goto error;
 	sf_upsertinit(&scheme->fmt_upsert);
 	scheme->fmt_sz = ss_strdup(&e->a, "kv");
 	if (ssunlikely(scheme->fmt_sz == NULL))
-		goto e1;
+		goto error;
 	/* init single key part as string */
 	int rc;
 	sr_schemeinit(&scheme->scheme);
 	srkey *part = sr_schemeadd(&scheme->scheme);
 	rc = sr_keysetname(part, &e->a, "key");
 	if (ssunlikely(rc == -1))
-		goto e1;
+		goto error;
 	rc = sr_keyset(part, &e->a, "string");
 	if (ssunlikely(rc == -1))
-		goto e1;
+		goto error;
 	return 0;
-e1:
-	si_schemefree(&db->scheme, &db->r);
-e0:
+error:
 	sr_oom(&e->error);
 	return -1;
 }
@@ -89,7 +87,7 @@ static int
 se_dbscheme_set(sedb *db)
 {
 	se *e = se_of(&db->o);
-	sischeme *s = &db->scheme;
+	sischeme *s = si_scheme(db->index);
 	/* storage */
 	if (strcmp(s->storage_sz, "cache") == 0) {
 		s->storage = SI_SCACHE;
@@ -179,24 +177,24 @@ se_dbscheme_set(sedb *db)
 			         s->cache_sz);
 			return -1;
 		}
-		if (! cache->scheme.cache_mode) {
+		if (! cache->scheme->cache_mode) {
 			sr_error(&e->error, "database '%s' is not in cache mode",
 			         s->cache_sz);
 			return -1;
 		}
-		if (! sr_schemeeq(&db->scheme.scheme, &cache->scheme.scheme)) {
+		if (! sr_schemeeq(&db->scheme->scheme, &cache->scheme->scheme)) {
 			sr_error(&e->error, "database and cache '%s' scheme mismatch",
 			         s->cache_sz);
 			return -1;
 		}
-		si_ref(&cache->index, SI_REFBE);
-		db->index.cache = &cache->index;
+		si_ref(cache->index, SI_REFBE);
+		db->index->cache = cache->index;
 	}
 
-	db->r.scheme = &s->scheme;
-	db->r.fmt = s->fmt;
-	db->r.fmt_storage = s->fmt_storage;
-	db->r.fmt_upsert = &s->fmt_upsert;
+	db->r->scheme = &s->scheme;
+	db->r->fmt = s->fmt;
+	db->r->fmt_storage = s->fmt_storage;
+	db->r->fmt_upsert = &s->fmt_upsert;
 	return 0;
 }
 
@@ -205,7 +203,7 @@ se_dbopen(so *o)
 {
 	sedb *db = se_cast(o, sedb*, SEDB);
 	se *e = se_of(&db->o);
-	int status = sr_status(&db->index.status);
+	int status = sr_status(&db->index->status);
 	if (status == SR_RECOVER ||
 	    status == SR_DROP_PENDING)
 		goto online;
@@ -214,7 +212,7 @@ se_dbopen(so *o)
 	int rc = se_dbscheme_set(db);
 	if (ssunlikely(rc == -1))
 		return -1;
-	sx_indexset(&db->coindex, db->scheme.id);
+	sx_indexset(&db->coindex, db->scheme->id);
 	rc = se_recoverbegin(db);
 	if (ssunlikely(rc == -1))
 		return -1;
@@ -224,10 +222,27 @@ se_dbopen(so *o)
 			return 0;
 online:
 	se_recoverend(db);
-	rc = sc_add(&e->scheduler, &db->o, &db->index);
+	rc = sc_add(&e->scheduler, db->index);
 	if (ssunlikely(rc == -1))
 		return -1;
 	return 0;
+}
+
+static inline int
+se_dbfree(sedb *db, int close)
+{
+	se *e = se_of(&db->o);
+	int rcret = 0;
+	int rc;
+	sx_indexfree(&db->coindex, &e->xm);
+	if (close) {
+		rc = si_close(db->index);
+		if (ssunlikely(rc == -1))
+			rcret = -1;
+	}
+	so_mark_destroyed(&db->o);
+	ss_free(&e->a, db);
+	return rcret;
 }
 
 static inline void
@@ -240,7 +255,7 @@ se_dbunref(sedb *db)
 		return;
 	/* reduce reference counter */
 	int ref;
-	ref = si_unref(&db->index, SI_REFFE);
+	ref = si_unref(db->index, SI_REFFE);
 	if (ref > 1)
 		return;
 	/* drop/shutdown pending:
@@ -248,7 +263,7 @@ se_dbunref(sedb *db)
 	 * switch state and transfer job to
 	 * the scheduler.
 	*/
-	status = sr_status(&db->index.status);
+	status = sr_status(&db->index->status);
 	switch (status) {
 	case SR_SHUTDOWN_PENDING:
 		status = SR_SHUTDOWN;
@@ -259,43 +274,30 @@ se_dbunref(sedb *db)
 	default:
 		return;
 	}
+	/* destroy database object */
+	si *index = db->index;
 	so_listdel(&e->db, &db->o);
-	if (db->index.cache)
-		si_unref(db->index.cache, SI_REFBE);
-	/* schedule database shutdown or drop */
-	sr_statusset(&db->index.status, status);
-	sc_ctl_shutdown(&e->scheduler, &db->index);
+	if (index->cache)
+		si_unref(index->cache, SI_REFBE);
+	se_dbfree(db, 0);
+
+	/* schedule index shutdown or drop */
+	sr_statusset(&index->status, status);
+	sc_ctl_shutdown(&e->scheduler, index);
 }
 
 static int
-se_dbdestroy(so *o, int fe)
+se_dbdestroy(so *o)
 {
 	sedb *db = se_cast(o, sedb*, SEDB);
 	se *e = se_of(&db->o);
-	int rcret = 0;
-	int rc;
 	int status = sr_status(&e->status);
 	if (status == SR_SHUTDOWN ||
-	    status == SR_OFFLINE)
-		goto shutdown;
-
-	if (fe) {
-		se_dbunref(db);
-		return 0;
+	    status == SR_OFFLINE) {
+		return se_dbfree(db, 1);
 	}
-	/* backend: call from scheduler */
-	if (si_refs(&db->index) > 0)
-		return 0;
-
-shutdown:;
-	sx_indexfree(&db->coindex, &e->xm);
-	rc = si_close(&db->index);
-	if (ssunlikely(rc == -1))
-		rcret = -1;
-	si_schemefree(&db->scheme, &db->r);
-	so_mark_destroyed(&db->o);
-	ss_free(&e->a, db);
-	return rcret;
+	se_dbunref(db);
+	return 0;
 }
 
 static int
@@ -303,17 +305,12 @@ se_dbclose(so *o)
 {
 	sedb *db = se_cast(o, sedb*, SEDB);
 	se *e = se_of(&db->o);
-	int status = sr_status(&db->index.status);
+	int status = sr_status(&db->index->status);
 	if (ssunlikely(! sr_statusactive_is(status)))
 		return -1;
 	/* set last visible transaction id */
 	db->txn_max = sx_max(&e->xm);
-	sr_statusset(&db->index.status, SR_SHUTDOWN_PENDING);
-	/* maybe schedule shutdown right-away */
-	int ref;
-	ref = si_refof(&db->index, SI_REFFE);
-	if (ref == 0)
-		se_dbunref(db);
+	sr_statusset(&db->index->status, SR_SHUTDOWN_PENDING);
 	return 0;
 }
 
@@ -322,41 +319,33 @@ se_dbdrop(so *o)
 {
 	sedb *db = se_cast(o, sedb*, SEDB);
 	se *e = se_of(&db->o);
-	int status = sr_status(&db->index.status);
+	int status = sr_status(&db->index->status);
 	if (ssunlikely(! sr_statusactive_is(status)))
 		return -1;
-	int rc = si_dropmark(&db->index);
+	int rc = si_dropmark(db->index);
 	if (ssunlikely(rc == -1))
 		return -1;
 	/* set last visible transaction id */
 	db->txn_max = sx_max(&e->xm);
-	sr_statusset(&db->index.status, SR_DROP_PENDING);
-	/* maybe schedule drop right-away */
-	int ref;
-	ref = si_refof(&db->index, SI_REFFE);
-	if (ref == 0)
-		se_dbunref(db);
+	sr_statusset(&db->index->status, SR_DROP_PENDING);
 	return 0;
 }
 
-so *se_dbresult(se *e, scread *r, int async)
+so *se_dbresult(se *e, scread *r)
 {
 	sv result;
 	sv_init(&result, &sv_vif, r->result, NULL);
+	r->result = NULL;
+
 	sedocument *v =
-		(sedocument*)se_document_new(e, r->db, &result, async);
+		(sedocument*)se_document_new(e, r->db, &result);
 	if (ssunlikely(v == NULL))
 		return NULL;
-	r->result = NULL;
-	v->async_operation = 0;
-	v->async_status    = r->rc;
-	v->async_seq       = r->id;
-	v->async_arg       = r->arg.arg;
-	v->cache_only      = r->arg.cache_only;
-	v->oldest_only     = r->arg.oldest_only;
-	v->read_disk       = r->read_disk;
-	v->read_cache      = r->read_cache;
-	v->read_latency    = 0;
+	v->cache_only   = r->arg.cache_only;
+	v->oldest_only  = r->arg.oldest_only;
+	v->read_disk    = r->read_disk;
+	v->read_cache   = r->read_cache;
+	v->read_latency = 0;
 	if (result.v) {
 		v->read_latency = ss_utime() - r->start;
 		sr_statget(&e->stat,
@@ -395,12 +384,10 @@ se_dbread(sedb *db, sedocument *o, sx *x, int x_search,
 		sr_error(&e->error, "%s", "bad document parent");
 		return NULL;
 	}
-	if (ssunlikely(! sr_online(&db->index.status)))
+	if (ssunlikely(! sr_online(&db->index->status)))
 		goto e0;
 	int cache_only  = o->cache_only;
 	int oldest_only = o->oldest_only;
-	int async       = o->async;
-	void *async_arg = o->async_arg;
 
 	uint64_t start  = ss_utime();
 	/* prepare search key */
@@ -420,12 +407,12 @@ se_dbread(sedb *db, sedocument *o, sx *x, int x_search,
 	sv vprefix;
 	sv_init(&vprefix, &sv_vif, vprf, NULL);
 	if (vprf && v == NULL) {
-		v = sv_vdup(&db->r, &vprefix);
+		v = sv_vdup(db->r, &vprefix);
 		sv_init(&vp, &sv_vif, v, NULL);
 	}
 	sv vup;
 	memset(&vup, 0, sizeof(vup));
-	so_destroy(&o->o, 1);
+	so_destroy(&o->o);
 	o = NULL;
 
 	/* concurrent */
@@ -436,21 +423,17 @@ se_dbread(sedb *db, sedocument *o, sx *x, int x_search,
 		if (ssunlikely(rc == -1 || rc == 2 /* delete */))
 			goto e2;
 		if (rc == 1 && !sv_is(&vup, SVUPSERT)) {
-			so *ret = se_document_new(e, &db->o, &vup, async);
+			so *ret = se_document_new(e, &db->o, &vup);
 			if (ssunlikely(ret == NULL))
-				sv_vunref(&db->r, vup.v);
-			if (async) {
-				sedocument *match = (sedocument*)ret;
-				match->async_operation = 0;
-				match->async_status    = 1;
-				match->async_arg       = async_arg;
-				match->async_seq       = 0;
-				match->cache_only      = cache_only;
-				match->oldest_only     = oldest_only;
-			}
+				sv_vunref(db->r, vup.v);
+
+			sedocument *match = (sedocument*)ret;
+			match->cache_only  = cache_only;
+			match->oldest_only = oldest_only;
+
 			if (vprf)
-				sv_vunref(&db->r, vprf);
-			sv_vunref(&db->r, v);
+				sv_vunref(db->r, vprf);
+			sv_vunref(db->r, v);
 			return ret;
 		}
 	} else {
@@ -472,16 +455,18 @@ se_dbread(sedb *db, sedocument *o, sx *x, int x_search,
 
 	/* prepare request */
 	scread q;
-	sc_readopen(&q, &db->r, &db->o, &db->index);
+	sc_readopen(&q, db->r, &db->o, db->index);
 	q.start = start;
 	screadarg *arg = &q.arg;
 	arg->v           = vp;
-	arg->vup         = vup;
 	arg->vprefix     = vprefix;
+	arg->vup         = vup;
 	arg->cache       = cache;
 	arg->cachegc     = cachegc;
 	arg->order       = order;
-	arg->arg         = async_arg;
+	arg->has         = 0;
+	arg->upsert      = 0;
+	arg->upsert_eq   = 0;
 	arg->cache_only  = cache_only;
 	arg->oldest_only = oldest_only;
 	if (x) {
@@ -491,7 +476,7 @@ se_dbread(sedb *db, sedocument *o, sx *x, int x_search,
 		arg->vlsn = 0;
 		arg->vlsn_generate = 1;
 	}
-	if (sf_upserthas(&db->scheme.fmt_upsert)) {
+	if (sf_upserthas(&db->scheme->fmt_upsert)) {
 		arg->upsert = 1;
 		if (arg->order == SS_EQ) {
 			arg->order = SS_GTE;
@@ -499,35 +484,18 @@ se_dbread(sedb *db, sedocument *o, sx *x, int x_search,
 		}
 	}
 
-	/* asynchronous */
-	if (async) {
-		o = (sedocument*)se_dbresult(e, &q, 1);
-		if (ssunlikely(o == NULL)) {
-			sc_readclose(&q);
-			return NULL;
-		}
-		scread *req = (scread*)
-			sc_readpool_new(&e->scheduler.rp, &q.o, 1);
-		if (ssunlikely(req == NULL)) {
-			so_destroy(&o->o, 1);
-			sc_readclose(&q);
-			return NULL;
-		}
-		return o;
-	}
-
-	/* synchronous */
+	/* read index */
 	rc = sc_read(&q, &e->scheduler);
 	if (rc == 1)
-		o = (sedocument*)se_dbresult(e, &q, async);
+		o = (sedocument*)se_dbresult(e, &q);
 	sc_readclose(&q);
 	return o;
 e2: if (vprf)
-		sv_vunref(&db->r, vprf);
+		sv_vunref(db->r, vprf);
 e1: if (v)
-		sv_vunref(&db->r, v);
+		sv_vunref(db->r, v);
 e0: if (o)
-		so_destroy(&o->o, 1);
+		so_destroy(&o->o);
 	return NULL;
 }
 
@@ -540,11 +508,11 @@ se_dbwrite(sedb *db, sedocument *o, uint8_t flags)
 		sr_error(&e->error, "%s", "bad document parent");
 		return -1;
 	}
-	if (ssunlikely(! sr_online(&db->index.status)))
+	if (ssunlikely(! sr_online(&db->index->status)))
 		goto error;
-	if (ssunlikely(db->scheme.cache_mode))
+	if (ssunlikely(db->scheme->cache_mode))
 		goto error;
-	if (flags == SVUPSERT && !sf_upserthas(&db->scheme.fmt_upsert))
+	if (flags == SVUPSERT && !sf_upserthas(&db->scheme->fmt_upsert))
 		flags = 0;
 
 	/* prepare document */
@@ -552,7 +520,7 @@ se_dbwrite(sedb *db, sedocument *o, uint8_t flags)
 	int rc = se_dbv(db, o, 0, &v);
 	if (ssunlikely(rc == -1))
 		goto error;
-	so_destroy(&o->o, 1);
+	so_destroy(&o->o);
 	v->flags = flags;
 
 	/* ensure quota */
@@ -577,7 +545,7 @@ se_dbwrite(sedb *db, sedocument *o, uint8_t flags)
 	sx_gc(&x);
 	return rc;
 error:
-	so_destroy(&o->o, 1);
+	so_destroy(&o->o);
 	return -1;
 }
 
@@ -630,7 +598,7 @@ se_dbdocument(so *o)
 {
 	sedb *db = se_cast(o, sedb*, SEDB);
 	se *e = se_of(&db->o);
-	return se_document_new(e, &db->o, NULL, 0);
+	return se_document_new(e, &db->o, NULL);
 }
 
 static void*
@@ -638,13 +606,13 @@ se_dbget_string(so *o, const char *path, int *size)
 {
 	sedb *db = se_cast(o, sedb*, SEDB);
 	if (strcmp(path, "name") == 0) {
-		int namesize = strlen(db->scheme.name) + 1;
+		int namesize = strlen(db->scheme->name) + 1;
 		if (size)
 			*size = namesize;
 		char *name = malloc(namesize);
 		if (name == NULL)
 			return NULL;
-		memcpy(name, db->scheme.name, namesize);
+		memcpy(name, db->scheme->name, namesize);
 		return name;
 	}
 	return NULL;
@@ -655,10 +623,10 @@ se_dbget_int(so *o, const char *path)
 {
 	sedb *db = se_cast(o, sedb*, SEDB);
 	if (strcmp(path, "id") == 0)
-		return db->scheme.id;
+		return db->scheme->id;
 	else
 	if (strcmp(path, "key-count") == 0)
-		return db->scheme.scheme.count;
+		return db->scheme->scheme.count;
 	return -1;
 }
 
@@ -696,23 +664,22 @@ so *se_dbnew(se *e, char *name)
 	}
 	memset(o, 0, sizeof(*o));
 	so_init(&o->o, &se_o[SEDB], &sedbif, &e->o, &e->o);
-	o->r        = e->r;
-	o->r.scheme = &o->scheme.scheme;
-	o->created  = 0;
-	memset(&o->rtp, 0, sizeof(o->rtp));
-	int rc = se_dbscheme_init(o, name);
-	if (ssunlikely(rc == -1)) {
+	o->index = si_init(&e->r, &o->o);
+	if (ssunlikely(o->index == NULL)) {
 		ss_free(&e->a, o);
 		return NULL;
 	}
-	rc = si_init(&o->index, &o->r, &o->o);
+	o->r = si_r(o->index);
+	o->scheme = si_scheme(o->index);
+	int rc;
+	rc = se_dbscheme_init(o, name);
 	if (ssunlikely(rc == -1)) {
-		si_schemefree(&o->scheme, &o->r);
+		si_close(o->index);
 		ss_free(&e->a, o);
 		return NULL;
 	}
-	sr_statusset(&o->index.status, SR_OFFLINE);
-	sx_indexinit(&o->coindex, &e->xm, &o->r, &o->o, &o->index);
+	sr_statusset(&o->index->status, SR_OFFLINE);
+	sx_indexinit(&o->coindex, &e->xm, o->r, &o->o, o->index);
 	o->txn_min = sx_min(&e->xm);
 	o->txn_max = UINT32_MAX;
 	return &o->o;
@@ -723,7 +690,7 @@ so *se_dbmatch(se *e, char *name)
 	sslist *i;
 	ss_listforeach(&e->db.list, i) {
 		sedb *db = (sedb*)sscast(i, so, link);
-		if (strcmp(db->scheme.name, name) == 0)
+		if (strcmp(db->scheme->name, name) == 0)
 			return &db->o;
 	}
 	return NULL;
@@ -734,7 +701,7 @@ so *se_dbmatch_id(se *e, uint32_t id)
 	sslist *i;
 	ss_listforeach(&e->db.list, i) {
 		sedb *db = (sedb*)sscast(i, so, link);
-		if (db->scheme.id == id)
+		if (db->scheme->id == id)
 			return &db->o;
 	}
 	return NULL;
@@ -750,16 +717,16 @@ void se_dbbind(se *e)
 	sslist *i;
 	ss_listforeach(&e->db.list, i) {
 		sedb *db = (sedb*)sscast(i, so, link);
-		int status = sr_status(&db->index.status);
+		int status = sr_status(&db->index->status);
 		if (sr_statusactive_is(status))
-			si_ref(&db->index, SI_REFFE);
+			si_ref(db->index, SI_REFFE);
 	}
 }
 
 void se_dbunbind(se *e, uint64_t txn)
 {
-	sslist *i;
-	ss_listforeach(&e->db.list, i) {
+	sslist *i, *n;
+	ss_listforeach_safe(&e->db.list, i, n) {
 		sedb *db = (sedb*)sscast(i, so, link);
 		if (se_dbvisible(db, txn))
 			se_dbunref(db);
@@ -777,23 +744,23 @@ int se_dbv(sedb *db, sedocument *o, int search, svv **v)
 			o->v.v = NULL;
 			return 0;
 		}
-		*v = sv_vbuildraw(&db->r, sv_pointer(&o->v), sv_size(&o->v));
+		*v = sv_vbuildraw(db->r, sv_pointer(&o->v), sv_size(&o->v));
 		goto ret;
 	}
 	/* create document from raw data */
 	if (o->raw) {
-		*v = sv_vbuildraw(&db->r, o->raw, o->rawsize);
+		*v = sv_vbuildraw(db->r, o->raw, o->rawsize);
 		goto ret;
 	}
-	sr *runtime = &db->r;
+	sr *runtime = db->r;
 	sr  runtime_search;
 	if (search) {
 		if (o->keyc == 0)
 			return 0;
 		/* switch to key-value format to avoid value
 		 * copy during search operations */
-		if (db->r.fmt == SF_DOCUMENT) {
-			runtime_search = db->r;
+		if (db->r->fmt == SF_DOCUMENT) {
+			runtime_search = *db->r;
 			runtime_search.fmt = SF_KV;
 			runtime = &runtime_search;
 		}
@@ -801,7 +768,7 @@ int se_dbv(sedb *db, sedocument *o, int search, svv **v)
 
 	/* create document using current format, supplied
 	 * key-chain and value */
-	if (ssunlikely(o->keyc != db->scheme.scheme.count))
+	if (ssunlikely(o->keyc != db->scheme->scheme.count))
 		return sr_error(&e->error, "%s", "bad document key");
 
 	*v = sv_vbuild(runtime, o->keyv, o->keyc,
@@ -826,7 +793,7 @@ int se_dbvprefix(sedb *db, sedocument *o, svv **v)
 	if (o->prefix == NULL)
 		return 0;
 	/* validate index type */
-	if (sr_schemeof(&db->scheme.scheme, 0)->type != SS_STRING)
+	if (sr_schemeof(&db->scheme->scheme, 0)->type != SS_STRING)
 		return sr_error(&e->error, "%s", "prefix search is only "
 		                "supported for a string key");
 	/* create prefix document */

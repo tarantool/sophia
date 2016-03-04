@@ -52,7 +52,6 @@ STS_TESTS = unit/ss_leb128.test.o \
             generic/cursor_rc.test.o \
             generic/half_commit.test.o \
             generic/upsert.test.o \
-            generic/async.test.o \
             generic/get_cache.test.o \
             generic/get_oldest.test.o \
             generic/amqf.test.o \
@@ -92,7 +91,7 @@ else
 STS_COVERAGE   =
 endif
 STS_CFLAGS     = $(SOPHIA_INCLUDE) -g -O0 -Wall -I. -I../sophia -Isuite/ -pthread
-STS_LDFLAGS    = ../sophia.o -pthread -lm $(STS_COVERAGE)
+STS_LDFLAGS    = ../sophia.o -pthread -lm -lrt $(STS_COVERAGE)
 STS_OBJECTS    = suite/st_r.o \
                  suite/st_suite.o \
                  suite/st_generator.o \
