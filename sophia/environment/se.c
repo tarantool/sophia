@@ -127,7 +127,7 @@ online:
 }
 
 static int
-se_destroy(so *o, int fe ssunused)
+se_destroy(so *o)
 {
 	se *e = se_cast(o, se*, SE);
 	int rcret = 0;
@@ -154,7 +154,7 @@ se_destroy(so *o, int fe ssunused)
 	rc = so_pooldestroy(&e->confcursor);
 	if (ssunlikely(rc == -1))
 		rcret = -1;
-	rc = so_listdestroy(&e->db, 1);
+	rc = so_listdestroy(&e->db);
 	if (ssunlikely(rc == -1))
 		rcret = -1;
 	rc = so_pooldestroy(&e->document);
@@ -183,7 +183,7 @@ se_destroy(so *o, int fe ssunused)
 static int
 se_close(so *o)
 {
-	return se_destroy(o, 1);
+	return se_destroy(o);
 }
 
 static void*
@@ -202,20 +202,15 @@ se_poll(so *o)
 		int event = sc_ctl_backup_event(&e->scheduler);
 		if (event) {
 			sedocument *doc;
-			result = se_document_new(e, &e->o, NULL, 1);
+			result = se_document_new(e, &e->o, NULL);
 			if (ssunlikely(result == NULL))
 				return NULL;
 			doc = (sedocument*)result;
-			doc->async_operation = 1;
+			doc->event = 1;
 			return result;
 		}
 	}
-	scread *r = (scread*)sc_readpool_popready(&e->scheduler.rp);
-	if (r == NULL)
-		return NULL;
-	result = se_dbresult(e, r, 1);
-	so_destroy(&r->o, 1);
-	return result;
+	return NULL;
 }
 
 static int

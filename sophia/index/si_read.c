@@ -26,7 +26,7 @@ int si_readopen(siread *q, sitx *x, sicache *c, ssorder o,
 	q->vlsn        = vlsn;
 	q->x           = x;
 	q->index       = x->index;
-	q->r           = x->index->r;
+	q->r           = &x->index->r;
 	q->cache       = c;
 	q->prefix      = prefix;
 	q->prefixsize  = prefixsize;
@@ -170,7 +170,7 @@ si_getbranch(siread *q, sinode *n, sibranch *b)
 	sicachebranch *c = si_cachefollow(q->cache, b);
 	assert(c->branch == b);
 	/* amqf */
-	sischeme *scheme = q->index->scheme;
+	sischeme *scheme = &q->index->scheme;
 	int rc;
 	if (scheme->amqf) {
 		rc = si_amqfhas_branch(q->r, b, q->key);
@@ -291,7 +291,7 @@ si_rangebranch(siread *q, sinode *n, sibranch *b, svmerge *m)
 	}
 	c->open = 1;
 	/* choose compression type */
-	sischeme *scheme = q->index->scheme;
+	sischeme *scheme = &q->index->scheme;
 	int compression;
 	ssfilterif *compression_if;
 	if (! si_branchis_root(b)) {

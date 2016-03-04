@@ -32,7 +32,7 @@ se_txwrite(setx *t, sedocument *o, uint8_t flags)
 	}
 
 	/* validate database status */
-	int status = sr_status(&db->index.status);
+	int status = sr_status(&db->index->status);
 	switch (status) {
 	case SR_SHUTDOWN_PENDING:
 	case SR_DROP_PENDING:
@@ -45,7 +45,7 @@ se_txwrite(setx *t, sedocument *o, uint8_t flags)
 	case SR_ONLINE: break;
 	default: goto error;
 	}
-	if (flags == SVUPSERT && !sf_upserthas(&db->scheme.fmt_upsert))
+	if (flags == SVUPSERT && !sf_upserthas(&db->scheme->fmt_upsert))
 		flags = 0;
 
 	/* prepare document */
@@ -57,7 +57,7 @@ se_txwrite(setx *t, sedocument *o, uint8_t flags)
 	v->log = o->log;
 	sv vp;
 	sv_init(&vp, &sv_vif, v, NULL);
-	so_destroy(&o->o, 1);
+	so_destroy(&o->o);
 
 	/* ensure quota */
 	int size = sv_vsize(v);
@@ -71,7 +71,7 @@ se_txwrite(setx *t, sedocument *o, uint8_t flags)
 	}
 	return 0;
 error:
-	so_destroy(&o->o, 1);
+	so_destroy(&o->o);
 	return -1;
 }
 
@@ -107,7 +107,7 @@ se_txget(so *o, so *v)
 	se *e = se_of(&t->o);
 	sedb *db = se_cast(key->o.parent, sedb*, SEDB);
 	/* validate database */
-	int status = sr_status(&db->index.status);
+	int status = sr_status(&db->index->status);
 	switch (status) {
 	case SR_SHUTDOWN_PENDING:
 	case SR_DROP_PENDING:
@@ -123,7 +123,7 @@ se_txget(so *o, so *v)
 	}
 	return se_dbread(db, key, &t->t, 1, NULL, key->order);
 error:
-	so_destroy(&key->o, 1);
+	so_destroy(&key->o);
 	return NULL;
 }
 
@@ -151,7 +151,7 @@ se_txend(setx *t, int rlb, int conflict)
 }
 
 static int
-se_txrollback(so *o, int fe ssunused)
+se_txrollback(so *o)
 {
 	setx *t = se_cast(o, setx*, SETX);
 	sx_rollback(&t->t);
@@ -167,13 +167,19 @@ se_txprepare(sx *x, sv *v, so *o, void *ptr)
 	se *e = se_of(&db->o);
 
 	scread q;
-	sc_readopen(&q, &db->r, &db->o, &db->index);
+	sc_readopen(&q, db->r, &db->o, db->index);
 	screadarg *arg = &q.arg;
 	arg->v             = *v;
+	arg->vprefix.v     = NULL;
+	arg->vup.v         = NULL;
 	arg->cache         = cache;
 	arg->cachegc       = 0;
 	arg->order         = SS_EQ;
 	arg->has           = 1;
+	arg->upsert        = 0;
+	arg->upsert_eq     = 0;
+	arg->cache_only    = 0;
+	arg->oldest_only   = 0;
 	arg->vlsn          = x->vlsn;
 	arg->vlsn_generate = 0;
 	int rc = sc_read(&q, &e->scheduler);

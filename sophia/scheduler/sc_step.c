@@ -50,19 +50,9 @@ sc_execute(sctask *t, scworker *w, uint64_t vlsn)
 	else
 		index = t->db->index;
 
-	si_plannertrace(&t->plan, index->scheme->id, &w->trace);
+	si_plannertrace(&t->plan, index->scheme.id, &w->trace);
 	uint64_t vlsn_lru = si_lru_vlsn(index);
-	int rcret = 0;
-	int rc = si_execute(index, &w->dc, &t->plan, vlsn, vlsn_lru);
-	if (ssunlikely(rc == -1))
-		rcret = -1;
-
-	if (t->shutdown) {
-		rc = so_destroy(index->object, 0);
-		if (ssunlikely(rc == -1))
-			rcret = -1;
-	}
-	return rcret;
+	return si_execute(index, &w->dc, &t->plan, vlsn, vlsn_lru);
 }
 
 static int
@@ -127,26 +117,11 @@ sc_do(sc *s, sctask *task, scworker *w, uint64_t vlsn)
 	task->snapshot_complete = 0;
 	task->backup_complete = 0;
 	task->rotate = 0;
-	task->read = 0;
 	task->gc = 0;
 	task->db = NULL;
 	task->shutdown = NULL;
 
 	ss_mutexlock(&s->lock);
-
-	/* asynchronous reader */
-	if (s->read == 0) {
-		switch (zone->async) {
-		case 2:
-			if (sc_readpool_queue(&s->rp) == 0)
-				break;
-		case 1:
-			s->read = 1;
-			task->read = zone->async;
-			ss_mutexunlock(&s->lock);
-			return 0;
-		}
-	}
 
 	/* log gc and rotation */
 	if (s->rotate == 0)
@@ -206,17 +181,18 @@ checkpoint:
 	}
 
 	/* database shutdown-drop */
-	if (s->shutdown.n > 0) {
+	if (s->shutdown_pending > 0) {
 		sslist *p, *n;
-		ss_listforeach_safe(&s->shutdown.list, p, n) {
-			so *o = sscast(p, so, link);
-			si *index = sscast(o, si, link);
+		ss_listforeach_safe(&s->shutdown, p, n) {
+			si *index = sscast(p, si, link);
 			task->plan.plan = SI_SHUTDOWN;
 			rc = si_plan(index, &task->plan);
 			if (rc == 1) {
-				so_listdel(&s->shutdown, &index->link);
-				sc_del(s, index->object, 0);
+				s->shutdown_pending--;
+				ss_listunlink(&index->link);
+				sc_del(s, index, 0);
 				task->shutdown = index;
+				task->db = NULL;
 				task->gc = 1;
 				ss_mutexunlock(&s->lock);
 				return 1;
@@ -544,33 +520,11 @@ sc_complete(sc *s, sctask *t)
 		sdb->workers[SC_QLRU]--;
 		break;
 	}
-	if (sdb && sdb->db)
+	if (sdb)
 		si_unref(sdb->index, SI_REFBE);
 	if (t->rotate == 1)
 		s->rotate = 0;
-	if (t->read)
-		s->read = 0;
 	ss_mutexunlock(&s->lock);
-	return 0;
-}
-
-static int
-sc_reader(sc *s, scworker *w, sctask *t)
-{
-	ss_trace(&w->trace, "%s", "reader");
-	int block = t->read == 1;
-	do {
-		int rc = sr_statusactive(s->r->status);
-		if (ssunlikely(rc == 0))
-			break;
-		scread *r = (scread*)sc_readpool_pop(&s->rp, block);
-		if (ssunlikely(r == NULL))
-			continue;
-		sc_read(r, s);
-		sc_readpool_ready(&s->rp, &r->o);
-		/* trigger ready event */
-		ss_triggerrun(s->on_event);
-	} while (block);
 	return 0;
 }
 
@@ -583,12 +537,6 @@ int sc_step(sc *s, scworker *w, uint64_t vlsn)
 		rc = sc_rotate(s, w);
 		if (ssunlikely(rc == -1))
 			goto error;
-	}
-	if (task.read) {
-		rc = sc_reader(s, w, &task);
-		if (ssunlikely(rc == -1)) {
-			goto error;
-		}
 	}
 	/* trigger backup competion */
 	if (task.backup_complete)

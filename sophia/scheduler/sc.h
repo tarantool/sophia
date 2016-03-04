@@ -24,7 +24,6 @@ enum {
 struct scdb {
 	uint32_t workers[SC_QNONE];
 	si *index;
-	so *db;
 };
 
 struct sctask {
@@ -32,7 +31,6 @@ struct sctask {
 	scdb  *db;
 	si    *shutdown;
 	int    rotate;
-	int    read;
 	int    gc;
 	int    checkpoint_complete;
 	int    anticache_complete;
@@ -66,16 +64,14 @@ struct sc {
 	uint32_t       backup_bsn_last_complete;
 	uint32_t       backup_events;
 	uint32_t       backup;
-	int            shutdown_pending;
 	int            rotate;
-	int            read;
 	int            rr;
 	int            count;
 	scdb         **i;
-	solist         shutdown;
+	sslist         shutdown;
+	int            shutdown_pending;
 	ssthreadpool   tp;
 	scworkerpool   wp;
-	screadpool     rp;
 	slpool        *lp;
 	char          *backup_path;
 	sstrigger     *on_event;
@@ -86,7 +82,7 @@ int sc_init(sc*, sr*, sstrigger*, slpool*);
 int sc_set(sc *s, uint64_t, char*);
 int sc_create(sc *s, ssthreadf, void*, int);
 int sc_shutdown(sc*);
-int sc_add(sc*, so*, si*);
-int sc_del(sc*, so*, int);
+int sc_add(sc*, si*);
+int sc_del(sc*, si*, int);
 
 #endif

@@ -15,23 +15,23 @@ struct sedb {
 	so         o;
 	uint32_t   created;
 	siprofiler rtp;
-	sischeme   scheme;
-	si         index;
+	sischeme  *scheme;
+	si        *index;
+	sr        *r;
 	sxindex    coindex;
 	uint64_t   txn_min;
 	uint64_t   txn_max;
-	sr         r;
 };
 
 static inline int
 se_dbactive(sedb *o) {
-	return si_active(&o->index);
+	return si_active(o->index);
 }
 
 so   *se_dbnew(se*, char*);
 so   *se_dbmatch(se*, char*);
 so   *se_dbmatch_id(se*, uint32_t);
-so   *se_dbresult(se*, scread*, int);
+so   *se_dbresult(se*, scread*);
 void *se_dbread(sedb*, sedocument*, sx*, int, sicache*, ssorder);
 int   se_dbvisible(sedb*, uint64_t);
 void  se_dbbind(se*);
