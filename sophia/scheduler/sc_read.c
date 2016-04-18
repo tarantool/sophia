@@ -24,8 +24,6 @@ void sc_readclose(scread *r)
 	/* free key, prefix, upsert and a pending result */
 	if (r->arg.v.v)
 		sv_vunref(rt, r->arg.v.v);
-	if (r->arg.vprefix.v)
-		sv_vunref(rt, r->arg.vprefix.v);
 	if (r->arg.vup.v)
 		sv_vunref(rt, r->arg.vup.v);
 	if (ssunlikely(r->result))
@@ -47,18 +45,22 @@ void sc_readopen(scread *r, sr *rt, so *db, si *index)
 	r->r = rt;
 }
 
-static inline int
-sc_readindex(scread *r, si *index, void *key, uint32_t keysize,
-             char *prefix,
-             uint32_t prefixsize)
+int sc_read(scread *r, sc *s)
 {
 	screadarg *arg = &r->arg;
+	si *index = r->index;
+
+	if (sslikely(arg->vlsn_generate))
+		arg->vlsn = sr_seq(s->r->seq, SR_LSN);
+
 	siread q;
 	si_readopen(&q, index, arg->cache,
 	            arg->order,
 	            arg->vlsn,
-	            prefix,
-	            prefixsize, key, keysize);
+	            arg->prefix,
+	            arg->prefixsize,
+	            sv_pointer(&arg->v),
+	            sv_size(&arg->v));
 	if (arg->upsert)
 		si_readupsert(&q, &arg->vup, arg->upsert_eq);
 	if (arg->cache_only)
@@ -73,58 +75,4 @@ sc_readindex(scread *r, si *index, void *key, uint32_t keysize,
 	r->result = q.result.v;
 	si_readclose(&q);
 	return r->rc;
-}
-
-int sc_read(scread *r, sc *s)
-{
-	screadarg *arg = &r->arg;
-	si *index = r->index;
-	/* set key */
-	uint32_t keysize;
-	void *key;
-	if (sslikely(arg->v.v)) {
-		keysize = sv_size(&arg->v);
-		key = sv_pointer(&arg->v);
-	} else {
-		keysize = 0;
-		key = NULL;
-	}
-	/* set prefix */
-	char *prefix;
-	uint32_t prefixsize;
-	if (arg->vprefix.v) {
-		void *vptr = sv_vpointer(arg->vprefix.v);
-		prefix = sf_key(vptr, 0);
-		prefixsize = sf_keysize(vptr, 0);
-	} else {
-		prefix = NULL;
-		prefixsize = 0;
-	}
-	if (sslikely(arg->vlsn_generate))
-		arg->vlsn = sr_seq(s->r->seq, SR_LSN);
-
-	/* read cache */
-	if (index->cache && (arg->order == SS_EQ))
-	{
-		int rc;
-		rc = sc_readindex(r, index->cache, key, keysize,
-		                  prefix,
-		                  prefixsize);
-		switch (rc) {
-		case  0:
-			/* not found.
-			 * repeat search using primary storage.
-			 **/
-			break;
-		case -1:
-		case  1: /* found */
-			return rc;
-		case  2: /* delete found */
-			return 0;
-		}
-	}
-	/* read storage */
-	return sc_readindex(r, index, key, keysize,
-	                    prefix,
-	                    prefixsize);
 }

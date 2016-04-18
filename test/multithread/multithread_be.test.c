@@ -72,7 +72,7 @@ mt_set_checkpoint_get(void)
 
 	/* This works only with thread = 1.
 	 *
-	 * Real data flush can happed before index got
+	 * Real data flush can happed before scheme got
 	 * collected and any other worker trigger
 	 * checkpoint complete.
 	*/
@@ -197,8 +197,14 @@ mt_create_set_close(void)
 		snprintf(path, sizeof(path), "db.%d.sync", i);
 		t( sp_setint(env, path, 0) == 0 );
 
-		snprintf(path, sizeof(path), "db.%d.index.key", i);
-		t( sp_setstring(env, path, "u32", 0) == 0 );
+		snprintf(path, sizeof(path), "db.%d.scheme", i);
+		t( sp_setstring(env, path, "key", 0) == 0 );
+
+		snprintf(path, sizeof(path), "db.%d.scheme", i);
+		t( sp_setstring(env, path, "value", 0) == 0 );
+
+		snprintf(path, sizeof(path), "db.%d.scheme.key", i);
+		t( sp_setstring(env, path, "u32,key(0)", 0) == 0 );
 
 		snprintf(path, sizeof(path), "db.%d", i);
 		void *db = sp_getobject(env, path);
@@ -252,8 +258,14 @@ mt_create_set_drop(void)
 		snprintf(path, sizeof(path), "db.%d.sync", i);
 		t( sp_setint(env, path, 0) == 0 );
 
-		snprintf(path, sizeof(path), "db.%d.index.key", i);
-		t( sp_setstring(env, path, "u32", 0) == 0 );
+		snprintf(path, sizeof(path), "db.%d.scheme", i);
+		t( sp_setstring(env, path, "key", 0) == 0 );
+
+		snprintf(path, sizeof(path), "db.%d.scheme", i);
+		t( sp_setstring(env, path, "value", 0) == 0 );
+
+		snprintf(path, sizeof(path), "db.%d.scheme.key", i);
+		t( sp_setstring(env, path, "u32,key(0)", 0) == 0 );
 
 		snprintf(path, sizeof(path), "db.%d", i);
 		void *db = sp_getobject(env, path);
@@ -293,7 +305,9 @@ mt_set_delete_get(void)
 	t( sp_open(env) == 0 );
 	t( sp_setstring(env, "db", "test", 0) == 0 );
 	t( sp_setstring(env, "db.test.path", st_r.conf->db_dir, 0) == 0 );
-	t( sp_setstring(env, "db.test.index.key", "u32", 0) == 0 );
+	t( sp_setstring(env, "db.test.scheme", "key", 0) == 0 );
+	t( sp_setstring(env, "db.test.scheme.key", "u32,key(0)", 0) == 0 );
+	t( sp_setstring(env, "db.test.scheme", "value", 0) == 0 );
 	t( sp_setint(env, "db.test.sync", 0) == 0 );
 	void *db = sp_getobject(env, "db.test");
 	t( db != NULL );
@@ -350,9 +364,11 @@ mt_set_get_kv_multipart(void)
 	t( sp_setstring(env, "db.test.path", st_r.conf->db_dir, 0) == 0 );
 	t( sp_setint(env, "db.test.compression_key", 1) == 0 );
 	t( sp_setint(env, "db.test.sync", 0) == 0 );
-	t( sp_setstring(env, "db.test.index.key", "string", 0) == 0 );
-	t( sp_setstring(env, "db.test.index", "key_b", 0) == 0 );
-	t( sp_setstring(env, "db.test.index.key_b", "u32", 0) == 0 );
+	t( sp_setstring(env, "db.test.scheme", "key", 0) == 0 );
+	t( sp_setstring(env, "db.test.scheme.key", "string,key(0)", 0) == 0 );
+	t( sp_setstring(env, "db.test.scheme", "key_b", 0) == 0 );
+	t( sp_setstring(env, "db.test.scheme.key_b", "u32,key(1)", 0) == 0 );
+	t( sp_setstring(env, "db.test.scheme", "value", 0) == 0 );
 	void *db = sp_getobject(env, "db.test");
 	t( db != NULL );
 	t( sp_open(env) == 0 );
@@ -395,146 +411,6 @@ mt_set_get_kv_multipart(void)
 }
 
 static void
-mt_set_get_document_multipart(void)
-{
-	void *env = sp_env();
-	t( env != NULL );
-	t( sp_setstring(env, "sophia.path", st_r.conf->sophia_dir, 0) == 0 );
-	t( sp_setint(env, "scheduler.threads", 5) == 0 );
-	t( sp_setstring(env, "log.path", st_r.conf->log_dir, 0) == 0 );
-	t( sp_setstring(env, "db", "test", 0) == 0 );
-	t( sp_setstring(env, "db.test.path", st_r.conf->db_dir, 0) == 0 );
-	t( sp_setint(env, "db.test.sync", 0) == 0 );
-	t( sp_setstring(env, "db.test.format", "document", 0) == 0 );
-	t( sp_setstring(env, "db.test.index.key", "u32", 0) == 0 );
-	t( sp_setstring(env, "db.test.index", "key_b", 0) == 0 );
-	t( sp_setstring(env, "db.test.index.key_b", "u32", 0) == 0 );
-	void *db = sp_getobject(env, "db.test");
-	t( db != NULL );
-	t( sp_open(env) == 0 );
-
-	struct document {
-		uint32_t value;
-		char used0[89];
-		uint32_t key_a;
-		char used1[15];
-		uint32_t key_b;
-		char used2[10];
-	} sspacked;
-	struct document doc;
-	memset(&doc, 'x', sizeof(doc));
-
-	uint32_t n = 500000;
-	uint32_t i;
-
-	srand(82351);
-	for (i = 0; i < n; i++) {
-		doc.key_a = rand();
-		doc.key_b = rand();
-		doc.value = doc.key_a ^ doc.key_b;
-		void *o = sp_document(db);
-		t( o != NULL );
-		t( sp_setstring(o, "key", &doc.key_a, sizeof(doc.key_a)) == 0 );
-		t( sp_setstring(o, "key_b", &doc.key_b, sizeof(doc.key_b)) == 0 );
-		t( sp_setstring(o, "value", &doc, sizeof(doc)) == 0 );
-		t( sp_set(db, o) == 0 );
-		print_current(i);
-	}
-	srand(82351);
-	for (i = 0; i < n; i++) {
-		doc.key_a = rand();
-		doc.key_b = rand();
-		doc.value = doc.key_a ^ doc.key_b;
-		void *o = sp_document(db);
-		t( o != NULL );
-		t( sp_setstring(o, "key", &doc.key_a, sizeof(doc.key_a)) == 0 );
-		t( sp_setstring(o, "key_b", &doc.key_b, sizeof(doc.key_b)) == 0 );
-		o = sp_get(db, o);
-		t( o != NULL );
-
-		int valuesize = 0;
-		struct document *ret =
-			(struct document*)sp_getstring(o, "value", &valuesize);
-		t( valuesize == sizeof(doc) );
-		t( doc.key_a == ret->key_a );
-		t( doc.key_b == ret->key_b );
-		t( doc.value == (ret->key_a ^ ret->key_b) );
-		sp_destroy(o);
-
-		print_current(i);
-	}
-
-	t( sp_destroy(env) == 0 );
-}
-
-static void
-mt_set_get_document_multipart_cursor(void)
-{
-	void *env = sp_env();
-	t( env != NULL );
-	t( sp_setstring(env, "sophia.path", st_r.conf->sophia_dir, 0) == 0 );
-	t( sp_setint(env, "scheduler.threads", 5) == 0 );
-	t( sp_setstring(env, "log.path", st_r.conf->log_dir, 0) == 0 );
-	t( sp_setstring(env, "db", "test", 0) == 0 );
-	t( sp_setstring(env, "db.test.path", st_r.conf->db_dir, 0) == 0 );
-	t( sp_setint(env, "db.test.sync", 0) == 0 );
-	t( sp_setstring(env, "db.test.format", "document", 0) == 0 );
-	t( sp_setstring(env, "db.test.index.key", "u32", 0) == 0 );
-	t( sp_setstring(env, "db.test.index", "key_b", 0) == 0 );
-	t( sp_setstring(env, "db.test.index.key_b", "u32", 0) == 0 );
-	void *db = sp_getobject(env, "db.test");
-	t( db != NULL );
-	t( sp_open(env) == 0 );
-
-	struct document {
-		uint32_t value;
-		char used0[89];
-		uint32_t key_a;
-		char used1[15];
-		uint32_t key_b;
-		char used2[10];
-	} sspacked;
-	struct document doc;
-	memset(&doc, 'x', sizeof(doc));
-
-	uint32_t n = 500000;
-	uint32_t i;
-
-	for (i = 0; i < n; i++) {
-		doc.key_a = i;
-		doc.key_b = i;
-		doc.value = doc.key_a ^ doc.key_b;
-		void *o = sp_document(db);
-		t( o != NULL );
-		t( sp_setstring(o, "key", &doc.key_a, sizeof(doc.key_a)) == 0 );
-		t( sp_setstring(o, "key_b", &doc.key_b, sizeof(doc.key_b)) == 0 );
-		t( sp_setstring(o, "value", &doc, sizeof(doc)) == 0 );
-		t( sp_set(db, o) == 0 );
-		print_current(i);
-	}
-
-	i = 0;
-	void *o = sp_document(db);
-	t( o != NULL );
-	void *cursor = sp_cursor(env);
-	t( cursor != NULL );
-	while ((o = sp_get(cursor, o))) {
-		int valuesize = 0;
-		struct document *ret =
-			(struct document*)sp_getstring(o, "value", &valuesize);
-		t( valuesize == sizeof(doc) );
-		t( ret->key_a == i );
-		t( ret->key_b == i );
-		print_current(i);
-		i++;
-	}
-	sp_destroy(cursor);
-	t( i == n );
-
-	t( sp_destroy(env) == 0 );
-}
-
-static void
 mt_set_get_anticache(void)
 {
 	void *env = sp_env();
@@ -551,7 +427,9 @@ mt_set_get_anticache(void)
 	t( sp_setint(env, "db.test.temperature", 1) == 0 );
 	t( sp_setint(env, "db.test.node_size", 100 * 1024) == 0 );
 	t( sp_setint(env, "db.test.page_size", 8 * 1024) == 0 );
-	t( sp_setstring(env, "db.test.index.key", "u32", 0) == 0 );
+	t( sp_setstring(env, "db.test.scheme", "key", 0) == 0 );
+	t( sp_setstring(env, "db.test.scheme.key", "u32,key(0)", 0) == 0 );
+	t( sp_setstring(env, "db.test.scheme", "value", 0) == 0 );
 	void *db = sp_getobject(env, "db.test");
 	t( db != NULL );
 	t( sp_open(env) == 0 );
@@ -603,7 +481,9 @@ mt_set_lru(void)
 	t( sp_setint(env, "db.test.compression_key", 0) == 0 );
 	t( sp_setint(env, "db.test.lru", 1 * 1024 * 1024) == 0 );
 	t( sp_setint(env, "db.test.sync", 0) == 0 );
-	t( sp_setstring(env, "db.test.index.key", "u32", 0) == 0 );
+	t( sp_setstring(env, "db.test.scheme", "key", 0) == 0 );
+	t( sp_setstring(env, "db.test.scheme.key", "u32,key(0)", 0) == 0 );
+	t( sp_setstring(env, "db.test.scheme", "value", 0) == 0 );
 	void *db = sp_getobject(env, "db.test");
 	t( db != NULL );
 	t( sp_open(env) == 0 );
@@ -632,68 +512,6 @@ mt_set_lru(void)
 }
 
 static void
-mt_set_get_cache(void)
-{
-	void *env = sp_env();
-	t( env != NULL );
-	t( sp_setstring(env, "sophia.path", st_r.conf->sophia_dir, 0) == 0 );
-	t( sp_setint(env, "scheduler.threads", 5) == 0 );
-	t( sp_setstring(env, "log.path", st_r.conf->log_dir, 0) == 0 );
-
-	t( sp_setstring(env, "db", "cache", 0) == 0 );
-	t( sp_setstring(env, "db.cache.index.key", "u32", 0) == 0 );
-	t( sp_setint(env, "db.cache.sync", 0) == 0 );
-	t( sp_setint(env, "db.cache.cache_mode", 1) == 0 );
-	t( sp_setint(env, "db.cache.lru", 10 * 1024 * 1024) == 0 );
-	t( sp_setint(env, "db.cache.amqf", 1) == 0 );
-
-	t( sp_setstring(env, "db", "test", 0) == 0 );
-	t( sp_setstring(env, "db.test.index.key", "u32", 0) == 0 );
-	t( sp_setint(env, "db.test.sync", 0) == 0 );
-	t( sp_setstring(env, "db.test.cache", "cache", 0) == 0 );
-
-	void *db = sp_getobject(env, "db.test");
-	t( db != NULL );
-	t( sp_open(env) == 0 );
-
-	uint32_t n = 500000;
-	uint32_t i, k;
-
-	char value[100];
-	memset(value, 0, sizeof(value));
-
-	srand(82351);
-	for (i = 0; i < n; i++) {
-		k = rand();
-		void *o = sp_document(db);
-		t( o != NULL );
-		t( sp_setstring(o, "key", &k, sizeof(k)) == 0 );
-		t( sp_setstring(o, "value", value, sizeof(value)) == 0 );
-		t( sp_set(db, o) == 0 );
-		print_current(i);
-	}
-
-	srand(82351);
-	for (i = 0; i < n; i++) {
-		k = rand();
-		void *o = sp_document(db);
-		t( o != NULL );
-		t( sp_setstring(o, "key", &k, sizeof(k)) == 0 );
-
-		void *tx = sp_begin(env);
-		t( tx != NULL );
-		o = sp_get(tx, o);
-		t( o != NULL );
-		sp_destroy(o);
-		t( sp_commit(tx) == 0 );
-
-		print_current(i);
-	}
-
-	t( sp_destroy(env) == 0 );
-}
-
-static void
 mt_set_expire(void)
 {
 	void *env = sp_env();
@@ -706,7 +524,9 @@ mt_set_expire(void)
 	t( sp_setstring(env, "db.test.path", st_r.conf->db_dir, 0) == 0 );
 	t( sp_setint(env, "db.test.compression_key", 1) == 0 );
 	t( sp_setint(env, "db.test.expire", 1) == 0 );
-	t( sp_setstring(env, "db.test.index.key", "u32", 0) == 0 );
+	t( sp_setstring(env, "db.test.scheme", "key", 0) == 0 );
+	t( sp_setstring(env, "db.test.scheme.key", "u32,key(0)", 0) == 0 );
+	t( sp_setstring(env, "db.test.scheme", "value", 0) == 0 );
 	void *db = sp_getobject(env, "db.test");
 	t( db != NULL );
 	t( sp_open(env) == 0 );
@@ -743,10 +563,7 @@ stgroup *multithread_be_group(void)
 	st_groupadd(group, st_test("set_snapshot_recover_get", mt_set_snapshot_recover_get));
 	st_groupadd(group, st_test("set_checkpoint_get", mt_set_checkpoint_get));
 	st_groupadd(group, st_test("set_get_kv_multipart", mt_set_get_kv_multipart));
-	st_groupadd(group, st_test("set_get_document_multipart", mt_set_get_document_multipart));
-	st_groupadd(group, st_test("set_get_document_multipart_cursor", mt_set_get_document_multipart_cursor));
 	st_groupadd(group, st_test("set_get_anticache", mt_set_get_anticache));
-	st_groupadd(group, st_test("set_get_cache", mt_set_get_cache));
 	st_groupadd(group, st_test("set_lru", mt_set_lru));
 	st_groupadd(group, st_test("set_expire", mt_set_expire));
 	return group;

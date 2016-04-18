@@ -17,8 +17,9 @@
 
 enum {
 	SI_SCHEME_NONE,
+	SI_SCHEME_VERSION,
+	SI_SCHEME_VERSION_STORAGE,
 	SI_SCHEME_NAME,
-	SI_SCHEME_FORMAT,
 	SI_SCHEME_FORMAT_STORAGE,
 	SI_SCHEME_SCHEME,
 	SI_SCHEME_NODE_SIZE,
@@ -38,6 +39,8 @@ enum {
 void si_schemeinit(sischeme *s)
 {
 	memset(s, 0, sizeof(*s));
+	sr_version(&s->version);
+	sr_version_storage(&s->version_storage);
 }
 
 void si_schemefree(sischeme *s, sr *r)
@@ -66,15 +69,7 @@ void si_schemefree(sischeme *s, sr *r)
 		ss_free(r->a, s->compression_branch_sz);
 		s->compression_branch_sz = NULL;
 	}
-	if (s->fmt_sz) {
-		ss_free(r->a, s->fmt_sz);
-		s->fmt_sz = NULL;
-	}
-	if (s->cache_sz) {
-		ss_free(r->a, s->cache_sz);
-		s->cache_sz = NULL;
-	}
-	sr_schemefree(&s->scheme, r->a);
+	sf_schemefree(&s->scheme, r->a);
 }
 
 int si_schemedeploy(sischeme *s, sr *r)
@@ -87,11 +82,19 @@ int si_schemedeploy(sischeme *s, sr *r)
 		return -1;
 	ssbuf buf;
 	ss_bufinit(&buf);
+	rc = sd_schemeadd(&c, r, SI_SCHEME_VERSION, SS_STRING, &s->version,
+	                  sizeof(s->version));
+	if (ssunlikely(rc == -1))
+		goto error;
+	rc = sd_schemeadd(&c, r, SI_SCHEME_VERSION_STORAGE, SS_STRING,
+	                  &s->version_storage, sizeof(s->version_storage));
+	if (ssunlikely(rc == -1))
+		goto error;
 	rc = sd_schemeadd(&c, r, SI_SCHEME_NAME, SS_STRING, s->name,
 	                  strlen(s->name) + 1);
 	if (ssunlikely(rc == -1))
 		goto error;
-	rc = sr_schemesave(&s->scheme, r->a, &buf);
+	rc = sf_schemesave(&s->scheme, r->a, &buf);
 	if (ssunlikely(rc == -1))
 		goto error;
 	rc = sd_schemeadd(&c, r, SI_SCHEME_SCHEME, SS_STRING, buf.s,
@@ -99,10 +102,7 @@ int si_schemedeploy(sischeme *s, sr *r)
 	if (ssunlikely(rc == -1))
 		goto error;
 	ss_buffree(&buf, r->a);
-	uint32_t v = s->fmt;
-	rc = sd_schemeadd(&c, r, SI_SCHEME_FORMAT, SS_U32, &v, sizeof(v));
-	if (ssunlikely(rc == -1))
-		goto error;
+	uint32_t v;
 	v = s->fmt_storage;
 	rc = sd_schemeadd(&c, r, SI_SCHEME_FORMAT_STORAGE, SS_U32, &v, sizeof(v));
 	if (ssunlikely(rc == -1))
@@ -146,10 +146,6 @@ int si_schemedeploy(sischeme *s, sr *r)
 	                  &s->amqf, sizeof(s->amqf));
 	if (ssunlikely(rc == -1))
 		goto error;
-	rc = sd_schemeadd(&c, r, SI_SCHEME_CACHE_MODE, SS_U32,
-	                  &s->cache_mode, sizeof(s->cache_mode));
-	if (ssunlikely(rc == -1))
-		goto error;
 	rc = sd_schemeadd(&c, r, SI_SCHEME_EXPIRE, SS_U32,
 	                  &s->expire, sizeof(s->expire));
 	if (ssunlikely(rc == -1))
@@ -174,6 +170,7 @@ int si_schemerecover(sischeme *s, sr *r)
 	sd_schemeinit(&c);
 	char path[PATH_MAX];
 	snprintf(path, sizeof(path), "%s/scheme", s->path);
+	int version_storage_set = 0;
 	int rc;
 	rc = sd_schemerecover(&c, r, path);
 	if (ssunlikely(rc == -1))
@@ -187,30 +184,29 @@ int si_schemerecover(sischeme *s, sr *r)
 	{
 		sdschemeopt *opt = ss_iterof(sd_schemeiter, &i);
 		switch (opt->id) {
-		case SI_SCHEME_FORMAT:
-			s->fmt = sd_schemeu32(opt);
-			char *name;
-			if (s->fmt == SF_KV)
-				name = "kv";
-			else
-			if (s->fmt == SF_DOCUMENT)
-				name = "document";
-			else
-				goto error;
-			ss_free(r->a, s->fmt_sz);
-			s->fmt_sz = ss_strdup(r->a, name);
-			if (ssunlikely(s->fmt_sz == NULL))
-				goto error;
+		case SI_SCHEME_VERSION:
 			break;
+		case SI_SCHEME_VERSION_STORAGE: {
+			if (opt->size != sizeof(srversion))
+				goto error;
+			srversion *version = (srversion*)sd_schemesz(opt);
+			if (! sr_versionstorage_check(version))
+				goto error_format;
+			version_storage_set = 1;
+			break;
+		}
 		case SI_SCHEME_FORMAT_STORAGE:
 			s->fmt_storage = sd_schemeu32(opt);
 			break;
 		case SI_SCHEME_SCHEME: {
-			sr_schemefree(&s->scheme, r->a);
-			sr_schemeinit(&s->scheme);
+			sf_schemefree(&s->scheme, r->a);
+			sf_schemeinit(&s->scheme);
 			ssbuf buf;
 			ss_bufinit(&buf);
-			rc = sr_schemeload(&s->scheme, r->a, sd_schemesz(opt), opt->size);
+			rc = sf_schemeload(&s->scheme, r->a, sd_schemesz(opt), opt->size);
+			if (ssunlikely(rc == -1))
+				goto error;
+			rc = sf_schemevalidate(&s->scheme, r->a);
 			if (ssunlikely(rc == -1))
 				goto error;
 			ss_buffree(&buf, r->a);
@@ -254,9 +250,6 @@ int si_schemerecover(sischeme *s, sr *r)
 		case SI_SCHEME_AMQF:
 			s->amqf = sd_schemeu32(opt);
 			break;
-		case SI_SCHEME_CACHE_MODE:
-			s->cache_mode = sd_schemeu32(opt);
-			break;
 		case SI_SCHEME_EXPIRE:
 			s->expire = sd_schemeu32(opt);
 			break;
@@ -265,8 +258,12 @@ int si_schemerecover(sischeme *s, sr *r)
 		}
 		ss_iternext(sd_schemeiter, &i);
 	}
+	if (ssunlikely(! version_storage_set))
+		goto error_format;
 	sd_schemefree(&c, r);
 	return 0;
+error_format:
+	sr_error(r->e, "%s", "incompatible storage format version");
 error:
 	sd_schemefree(&c, r);
 	return -1;

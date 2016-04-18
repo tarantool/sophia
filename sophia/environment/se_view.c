@@ -55,7 +55,7 @@ se_viewget(so *o, so *key)
 		sr_error(&e->error, "view '%s' is in db-cursor-only mode", s->name);
 		return NULL;
 	}
-	return se_dbread(db, v, &s->t, 0, NULL, SS_EQ);
+	return se_dbread(db, v, &s->t, 0, NULL);
 }
 
 static void*
@@ -105,6 +105,7 @@ static soif seviewif =
 	.drop         = NULL,
 	.setstring    = NULL,
 	.setint       = se_viewset_int,
+	.setobject    = NULL,
 	.getobject    = se_viewget_object,
 	.getstring    = NULL,
 	.getint       = NULL,

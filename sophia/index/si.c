@@ -48,7 +48,6 @@ si *si_init(sr *r, so *object)
 	i->snapshot_run = 0;
 	i->snapshot     = 0;
 	i->n            = 0;
-	i->cache        = NULL;
 	ss_spinlockinit(&i->ref_lock);
 	i->ref_fe       = 0;
 	i->ref_be       = 0;
@@ -92,7 +91,7 @@ int si_close(si *i)
 }
 
 ss_rbget(si_match,
-         sr_compare(scheme,
+         sf_compare(scheme,
                     sd_indexpage_min(&(sscast(n, sinode, node))->self.index,
                                      sd_indexmin(&(sscast(n, sinode, node))->self.index)),
                     sd_indexmin(&(sscast(n, sinode, node))->self.index)->sizemin,

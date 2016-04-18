@@ -27,8 +27,6 @@ struct sischeme {
 	uint32_t    mmap;
 	sistorage   storage;
 	char       *storage_sz;
-	uint32_t    cache_mode;
-	char       *cache_sz;
 	uint32_t    sync;
 	uint64_t    node_size;
 	uint32_t    node_page_size;
@@ -47,11 +45,11 @@ struct sischeme {
 	uint64_t    lru;
 	uint32_t    lru_step;
 	uint32_t    buf_gc_wm;
-	char       *fmt_sz;
-	sf          fmt;
 	sfstorage   fmt_storage;
 	sfupsert    fmt_upsert;
-	srscheme    scheme;
+	sfscheme    scheme;
+	srversion   version;
+	srversion   version_storage;
 };
 
 void si_schemeinit(sischeme*);

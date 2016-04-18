@@ -58,7 +58,7 @@ si_redistribute(si *index, sr *r, sdc *c, sinode *node, ssbuf *result)
 			svref *v = ss_iterof(ss_bufiterref, &i);
 			v->next = NULL;
 			sdindexpage *page = sd_indexmin(&p->self.index);
-			int rc = sr_compare(r->scheme, sv_vpointer(v->v), v->v->size,
+			int rc = sf_compare(r->scheme, sv_vpointer(v->v), v->v->size,
 			                    sd_indexpage_min(&p->self.index, page),
 			                    page->sizemin);
 			if (ssunlikely(rc >= 0))
@@ -165,8 +165,7 @@ si_split(si *index, sdc *c, ssbuf *result,
 		.vlsn            = vlsn,
 		.vlsn_lru        = vlsn_lru,
 		.save_delete     = 0,
-		.save_upsert     = 0,
-		.save_set        = !index->scheme.cache_mode
+		.save_upsert     = 0
 	};
 	sinode *n = NULL;
 	sdmerge merge;

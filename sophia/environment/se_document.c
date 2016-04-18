@@ -21,8 +21,7 @@
 #include <libse.h>
 
 enum {
-	SE_DOCUMENT_KEY,
-	SE_DOCUMENT_VALUE,
+	SE_DOCUMENT_FIELD,
 	SE_DOCUMENT_ORDER,
 	SE_DOCUMENT_PREFIX,
 	SE_DOCUMENT_LSN,
@@ -32,8 +31,8 @@ enum {
 	SE_DOCUMENT_FLAGS,
 	SE_DOCUMENT_CACHE_ONLY,
 	SE_DOCUMENT_OLDEST_ONLY,
-	SE_DOCUMENT_IMMUTABLE,
 	SE_DOCUMENT_EVENT,
+	SE_DOCUMENT_REUSE,
 	SE_DOCUMENT_UNKNOWN
 };
 
@@ -41,14 +40,6 @@ static inline int
 se_document_opt(const char *path)
 {
 	switch (path[0]) {
-	case 'v':
-		if (sslikely(strcmp(path, "value") == 0))
-			return SE_DOCUMENT_VALUE;
-		break;
-	case 'k':
-		if (sslikely(strncmp(path, "key", 3) == 0))
-			return SE_DOCUMENT_KEY;
-		break;
 	case 'o':
 		if (sslikely(strcmp(path, "order") == 0))
 			return SE_DOCUMENT_ORDER;
@@ -72,6 +63,8 @@ se_document_opt(const char *path)
 	case 'r':
 		if (sslikely(strcmp(path, "raw") == 0))
 			return SE_DOCUMENT_RAW;
+		if (sslikely(strcmp(path, "reuse") == 0))
+			return SE_DOCUMENT_REUSE;
 		break;
 	case 'f':
 		if (sslikely(strcmp(path, "flags") == 0))
@@ -81,16 +74,95 @@ se_document_opt(const char *path)
 		if (sslikely(strcmp(path, "cache_only") == 0))
 			return SE_DOCUMENT_CACHE_ONLY;
 		break;
-	case 'i':
-		if (sslikely(strcmp(path, "immutable") == 0))
-			return SE_DOCUMENT_IMMUTABLE;
-		break;
 	case 'e':
 		if (sslikely(strcmp(path, "event") == 0))
 			return SE_DOCUMENT_EVENT;
 		break;
 	}
-	return SE_DOCUMENT_UNKNOWN;
+	return SE_DOCUMENT_FIELD;
+}
+
+static inline int
+se_document_create(sedocument *o)
+{
+	sedb *db = (sedb*)o->o.parent;
+	se *e = se_of(&db->o);
+
+	assert(o->v.v == NULL);
+
+	/* reuse document */
+	uint32_t timestamp = UINT32_MAX;
+	if (db->scheme->expire > 0) {
+		if (ssunlikely(o->timestamp > 0))
+			timestamp = o->timestamp;
+		else
+			timestamp = ss_timestamp();
+	}
+
+	/* create document from raw data */
+	svv *v;
+	if (o->raw) {
+		v = sv_vbuildraw(db->r, o->raw, o->rawsize, timestamp);
+		if (ssunlikely(v == NULL))
+			return sr_oom(&e->error);
+		sv_init(&o->v, &sv_vif, v, NULL);
+		return 0;
+	}
+
+	if (o->prefix) {
+		if (db->scheme->scheme.keys[0]->type != SS_STRING)
+			return sr_error(&e->error, "%s", "prefix search is only "
+			                "supported for a string key");
+
+		void *copy = ss_malloc(&e->a, o->prefixsize);
+		if (ssunlikely(copy == NULL))
+			return sr_oom(&e->error);
+		memcpy(copy, o->prefix, o->prefixsize);
+		o->prefixcopy = copy;
+
+		if (o->fields_count_keys == 0 && o->prefix)
+		{
+			memset(o->fields, 0, sizeof(o->fields));
+			o->fields[0].pointer = o->prefix;
+			o->fields[0].size = o->prefixsize;
+			sf_limitset(&e->limit, &db->scheme->scheme, o->fields, SS_GTE);
+			goto allocate;
+		}
+	}
+
+	/* create document using current format, supplied
+	 * key-chain and value */
+	if (ssunlikely(o->fields_count_keys != db->scheme->scheme.keys_count))
+	{
+		/* set unspecified min/max keys, depending on
+		 * iteration order */
+		sf_limitset(&e->limit, &db->scheme->scheme,
+		            o->fields, o->order);
+		o->fields_count = db->scheme->scheme.fields_count;
+		o->fields_count_keys = db->scheme->scheme.keys_count;
+	}
+
+allocate:
+	v = sv_vbuild(db->r, o->fields, timestamp);
+	if (ssunlikely(v == NULL))
+		return sr_oom(&e->error);
+	sv_init(&o->v, &sv_vif, v, NULL);
+	return 0;
+}
+
+static int
+se_document_open(so *o)
+{
+	sedocument *v = se_cast(o, sedocument*, SEDOCUMENT);
+	if (sslikely(v->created)) {
+		assert(v->v.v != NULL);
+		return 0;
+	}
+	int rc = se_document_create(v);
+	if (ssunlikely(rc == -1))
+		return -1;
+	v->created = 1;
+	return 0;
 }
 
 static void
@@ -105,41 +177,49 @@ static int
 se_document_destroy(so *o)
 {
 	sedocument *v = se_cast(o, sedocument*, SEDOCUMENT);
-	if (ssunlikely(v->immutable))
-		return 0;
 	se *e = se_of(o);
 	if (v->v.v)
 		si_gcv(&e->r, v->v.v);
 	v->v.v = NULL;
+	if (v->prefixcopy)
+		ss_free(&e->a, v->prefixcopy);
+	v->prefixcopy = NULL;
+	v->prefix = NULL;
 	so_mark_destroyed(&v->o);
 	so_poolgc(&e->document, &v->o);
 	return 0;
 }
 
 static sfv*
-se_document_setpart(sedocument *v, const char *path, void *pointer, int size)
+se_document_setfield(sedocument *v, const char *path, void *pointer, int size)
 {
 	se *e = se_of(&v->o);
 	sedb *db = (sedb*)v->o.parent;
-	srkey *part = sr_schemefind(&db->scheme->scheme, (char*)path);
-	if (ssunlikely(part == NULL))
+	sffield *field = sf_schemefind(&db->scheme->scheme, (char*)path);
+	if (ssunlikely(field == NULL))
 		return NULL;
-	assert(part->pos < (int)(sizeof(v->keyv) / sizeof(sfv)));
-	const int keysize_max = 1 << 15;
+	assert(field->position < (int)(sizeof(v->fields) / sizeof(sfv)));
+	sfv *fv = &v->fields[field->position];
 	if (size == 0)
 		size = strlen(pointer);
-	if (ssunlikely(size > keysize_max)) {
-		sr_error(&e->error, "key '%s' is too big (%d limit)",
-		         pointer, keysize_max);
+	int fieldsize_max;
+	if (field->key) {
+		fieldsize_max = 1024;
+	} else {
+		fieldsize_max = 2 * 1024 * 1024;
+	}
+	if (ssunlikely(size > fieldsize_max)) {
+		sr_error(&e->error, "field '%s' is too big (%d limit)",
+		         pointer, fieldsize_max);
 		return NULL;
 	}
-	sfv *fv = &v->keyv[part->pos];
-	fv->r.offset = 0;
-	fv->key = pointer;
-	fv->r.size = size;
-	if (fv->part == NULL)
-		v->keyc++;
-	fv->part = part;
+	if (fv->pointer == NULL) {
+		v->fields_count++;
+		if (field->key)
+			v->fields_count_keys++;
+	}
+	fv->pointer = pointer;
+	fv->size = size;
 	sr_statkey(&e->stat, size);
 	return fv;
 }
@@ -152,24 +232,10 @@ se_document_setstring(so *o, const char *path, void *pointer, int size)
 	if (ssunlikely(v->v.v))
 		return sr_error(&e->error, "%s", "document is read-only");
 	switch (se_document_opt(path)) {
-	case SE_DOCUMENT_KEY: {
-		sfv *fv = se_document_setpart(v, path, pointer, size);
+	case SE_DOCUMENT_FIELD: {
+		sfv *fv = se_document_setfield(v, path, pointer, size);
 		if (ssunlikely(fv == NULL))
 			return -1;
-		break;
-	}
-	case SE_DOCUMENT_VALUE: {
-		const int valuesize_max = 1 << 21;
-		if (ssunlikely(size > valuesize_max)) {
-			sr_error(&e->error, "value is too big (%d limit)",
-			         valuesize_max);
-			return -1;
-		}
-		v->value = pointer;
-		if (ssunlikely(size == 0 && pointer))
-			size = strlen(pointer);
-		v->valuesize = size;
-		sr_statvalue(&e->stat, size);
 		break;
 	}
 	case SE_DOCUMENT_ORDER:
@@ -205,49 +271,23 @@ se_document_getstring(so *o, const char *path, int *size)
 {
 	sedocument *v = se_cast(o, sedocument*, SEDOCUMENT);
 	switch (se_document_opt(path)) {
-	case SE_DOCUMENT_KEY: {
-		/* match key-part */
+	case SE_DOCUMENT_FIELD: {
+		/* match field */
 		sedb *db = (sedb*)o->parent;
-		srkey *part = sr_schemefind(&db->scheme->scheme, (char*)path);
-		if (ssunlikely(part == NULL))
+		sffield *field = sf_schemefind(&db->scheme->scheme, (char*)path);
+		if (ssunlikely(field == NULL))
 			return NULL;
 		/* database result document */
-		if (v->v.v) {
-			if (size)
-				*size = sv_keysize(&v->v, db->r, part->pos);
-			return sv_key(&v->v, db->r, part->pos);
-		}
-		/* database key document */
-		assert(part->pos < (int)(sizeof(v->keyv) / sizeof(sfv)));
-		sfv *fv = &v->keyv[part->pos];
-		if (fv->key == NULL)
+		if (v->v.v)
+			return sv_field(&v->v, db->r, field->position, (uint32_t*)size);
+		/* database field document */
+		assert(field->position < (int)(sizeof(v->fields) / sizeof(sfv)));
+		sfv *fv = &v->fields[field->position];
+		if (fv->pointer == NULL)
 			return NULL;
 		if (size)
-			*size = fv->r.size;
-		return fv->key;
-	}
-	case SE_DOCUMENT_VALUE: {
-		/* key document */
-		if (v->value) {
-			if (size)
-				*size = v->valuesize;
-			if (v->valuesize == 0)
-				return NULL;
-			return v->value;
-		}
-		if (v->v.v == NULL) {
-			if (size)
-				*size = 0;
-			return NULL;
-		}
-		/* result document */
-		sedb *db = (sedb*)o->parent;
-		int vsize = sv_valuesize(&v->v, db->r);
-		if (size)
-			*size = vsize;
-		if (vsize == 0)
-			return NULL;
-		return sv_value(&v->v, db->r);
+			*size = fv->size;
+		return fv->pointer;
 	}
 	case SE_DOCUMENT_PREFIX: {
 		if (v->prefix == NULL)
@@ -300,9 +340,6 @@ se_document_setint(so *o, const char *path, int64_t num)
 	case SE_DOCUMENT_OLDEST_ONLY:
 		v->oldest_only = num;
 		break;
-	case SE_DOCUMENT_IMMUTABLE:
-		v->immutable = num;
-		break;
 	default:
 		return -1;
 	}
@@ -324,8 +361,6 @@ se_document_getint(so *o, const char *path)
 		return v->event;
 	case SE_DOCUMENT_CACHE_ONLY:
 		return v->cache_only;
-	case SE_DOCUMENT_IMMUTABLE:
-		return v->immutable;
 	case SE_DOCUMENT_FLAGS: {
 		uint64_t flags = -1;
 		if (v->v.v)
@@ -336,9 +371,35 @@ se_document_getint(so *o, const char *path)
 	return -1;
 }
 
+static int
+se_document_setobject(so *o, const char *path, void *object)
+{
+	sedocument *v = se_cast(o, sedocument*, SEDOCUMENT);
+	switch (se_document_opt(path)) {
+	case SE_DOCUMENT_REUSE: {
+		se *e = se_of(o);
+		sedocument *reuse = se_cast(object, sedocument*, SEDOCUMENT);
+		if (ssunlikely(v->created))
+			return sr_error(&e->error, "%s", "document is read-only");
+		assert(v->v.v == NULL);
+		if (ssunlikely(object == o->parent))
+			return sr_error(&e->error, "%s", "bad document operation");
+		if (ssunlikely(! reuse->created))
+			return sr_error(&e->error, "%s", "bad document operation");
+		sv_init(&v->v, &sv_vif, reuse->v.v, NULL);
+		sv_vref(v->v.v);
+		v->created = 1;
+		break;
+	}
+	default:
+		return -1;
+	}
+	return 0;
+}
+
 static soif sedocumentif =
 {
-	.open         = NULL,
+	.open         = se_document_open,
 	.close        = NULL,
 	.destroy      = se_document_destroy,
 	.free         = se_document_free,
@@ -348,6 +409,7 @@ static soif sedocumentif =
 	.drop         = NULL,
 	.setstring    = se_document_setstring,
 	.setint       = se_document_setint,
+	.setobject    = se_document_setobject,
 	.getobject    = NULL,
 	.getstring    = se_document_getstring,
 	.getint       = se_document_getint,
